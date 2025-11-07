@@ -109,38 +109,31 @@ export const syncShopifyOrders = async (req, res) => {
     };
     
     let allShopifyOrders = [];
-    const financialStatusesToFetch = ['paid', 'partially_paid'];
+    let nextUrl = `https://${SHOPIFY_STORE_URL}/admin/api/2024-04/orders.json?status=open&limit=250`;
 
-    for (const status of financialStatusesToFetch) {
-        let nextUrl = `https://${SHOPIFY_STORE_URL}/admin/api/2024-04/orders.json?status=open&financial_status=${status}&limit=250`;
-        
-        // Paginate through all orders for the current financial status
-        while (nextUrl) {
-            const response = await axios.get(nextUrl, config);
-            const ordersFromPage = response.data.orders;
-            
-            if (ordersFromPage && ordersFromPage.length > 0) {
-                allShopifyOrders.push(...ordersFromPage);
-            }
+    // Paginate through all open orders
+    while (nextUrl) {
+      const response = await axios.get(nextUrl, config);
+      const ordersFromPage = response.data.orders;
 
-            const linkHeader = response.headers.link;
-            const nextLink = linkHeader?.split(',').find(s => s.includes('rel="next"'));
-            
-            if (nextLink) {
-                nextUrl = nextLink.match(/<(.*?)>/)[1];
-            } else {
-                nextUrl = null; // No more pages, exit loop
-            }
-        }
+      if (ordersFromPage && ordersFromPage.length > 0) {
+        allShopifyOrders.push(...ordersFromPage);
+      }
+
+      const linkHeader = response.headers.link;
+      const nextLink = linkHeader?.split(',').find(s => s.includes('rel="next"'));
+
+      if (nextLink) {
+        nextUrl = nextLink.match(/<(.*?)>/)[1];
+      } else {
+        nextUrl = null; // No more pages, exit loop
+      }
     }
-    
-    // De-duplicate orders in case an order was fetched with multiple statuses (unlikely, but safe)
-    const uniqueShopifyOrders = Array.from(new Map(allShopifyOrders.map(order => [order.id, order])).values());
-    const shopifyOrders = uniqueShopifyOrders;
 
+    const shopifyOrders = allShopifyOrders;
 
     if (!shopifyOrders || shopifyOrders.length === 0) {
-      return res.status(200).json({ message: 'No new paid or partially paid orders to import.', importedOrders: [] });
+      return res.status(200).json({ message: 'No new open orders to import.', importedOrders: [] });
     }
 
     const existingShopifyIds = await Order.find({
