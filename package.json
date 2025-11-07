@@ -1,0 +1,14 @@
+{
+  "name": "flowtrack-fullstack",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "install": "npm install && npm install --prefix server && npm install --prefix client",
+    "dev": "concurrently \"npm:dev --prefix server\" \"npm:dev --prefix client\"",
+    "start": "npm run build --prefix client && npm start --prefix server",
+    "seed": "npm run seed --prefix server"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
