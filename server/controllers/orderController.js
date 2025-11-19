@@ -186,7 +186,7 @@ export const syncShopifyOrders = async (req, res) => {
       const newOrder = new Order({
         id: await getNextOrderId(),
         customerName: `${shopifyOrder.customer?.first_name || ''} ${shopifyOrder.customer?.last_name || ''}`.trim() || 'Guest Customer',
-        productName: shopifyOrder.line_items.map(item => item.name).join(', '),
+        productName: shopifyOrder.line_items.map(item => `${item.quantity} x ${item.name}`).join(', '),
         status: 'At Team',
         attachments: attachments,
         notes: [

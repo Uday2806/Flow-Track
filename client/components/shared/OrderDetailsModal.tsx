@@ -46,6 +46,8 @@ const AttachmentItem: React.FC<{ attachment: Attachment }> = ({ attachment }) =>
 
 const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, onClose, hideCustomerInfo, hideDates, hideAssociatedStaff }) => {
   if (!order) return null;
+  
+  const products = order.productName ? order.productName.split(', ') : [];
 
   return (
     <Modal isOpen={!!order} onClose={onClose} title={`Order Details: ${order.shopifyOrderNumber || order.id}`} className="max-w-4xl">
@@ -66,9 +68,15 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, onClose, h
               )}
             </div>
             <div className="text-sm grid grid-cols-2 gap-x-4 gap-y-2 text-slate-700">
-              <p className="col-span-2 sm:col-span-1 break-words">
-                <strong className="font-semibold text-slate-900">Product:</strong> {order.productName}
-              </p>
+              <div className="col-span-2 mb-2">
+                <strong className="font-semibold text-slate-900 block mb-1">Products:</strong> 
+                <ul className="list-disc list-inside bg-slate-50 p-2 rounded border border-slate-100">
+                    {products.map((p, i) => (
+                        <li key={i} className="py-0.5">{p}</li>
+                    ))}
+                </ul>
+              </div>
+              
               {!hideCustomerInfo && (
                 <p className="col-span-2 sm:col-span-1 break-words">
                   <strong className="font-semibold text-slate-900">Customer:</strong> {order.customerName}

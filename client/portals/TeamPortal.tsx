@@ -321,7 +321,20 @@ export const IncomingQueueView: React.FC<{ onViewOrderDetails: (order: Order) =>
             <Modal isOpen={approveModalOpen} onClose={() => setApproveModalOpen(false)} title={`Confirm Approval: ${orderToApprove?.shopifyOrderNumber || orderToApprove?.id}`} footer={<div className="flex justify-end space-x-2"><Button variant="outline" onClick={() => setApproveModalOpen(false)}>Cancel</Button><Button onClick={handleApprove} disabled={!selectedVendorId}>Confirm & Send to Vendor</Button></div>}>
                 <div className="space-y-4">
                     <p>You are about to approve this order. Please select a vendor to send it to for production.</p>
-                    {orderToApprove && (<div className="p-3 text-sm bg-slate-50 rounded-md border"><p><strong>Order ID:</strong> {orderToApprove.shopifyOrderNumber || orderToApprove.id}</p><p><strong>Customer:</strong> {orderToApprove.customerName}</p><p><strong>Product:</strong> {orderToApprove.productName}</p></div>)}
+                    {orderToApprove && (
+                        <div className="p-3 text-sm bg-slate-50 rounded-md border">
+                            <p><strong>Order ID:</strong> {orderToApprove.shopifyOrderNumber || orderToApprove.id}</p>
+                            <p><strong>Customer:</strong> {orderToApprove.customerName}</p>
+                            <div>
+                                <strong>Products:</strong>
+                                <ul className="list-disc list-inside pl-2 mt-1">
+                                    {orderToApprove.productName.split(', ').map((p, i) => (
+                                        <li key={i}>{p}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </div>
+                    )}
                     <div>
                         <label htmlFor="vendor-select" className="block text-sm font-medium text-slate-700">Assign to Vendor (Required)</label>
                         <select id="vendor-select" value={selectedVendorId} onChange={e => setSelectedVendorId(e.target.value)} className="w-full mt-1 p-2 border rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-slate-800"><option value="" disabled>Select a vendor...</option>{vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}</select>

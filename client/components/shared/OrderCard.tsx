@@ -58,28 +58,44 @@ const getFinancialStatusStyle = (status?: string) => {
 
 const OrderCard: React.FC<OrderCardProps> = ({ order, onViewDetails, actions, hideCustomerInfo, hideDates, hideStatus, digitizerName }) => {
   const formattedDate = new Date(order.updatedAt).toLocaleString();
+  
+  // Parse product string into a list
+  const products = order.productName ? order.productName.split(', ') : [];
+  const displayProducts = products.slice(0, 3);
+  const remainingCount = products.length - 3;
 
   return (
     <Card className="flex flex-col h-full transition-shadow duration-300 hover:shadow-md">
       <CardHeader>
-        <div className="flex justify-between items-start">
-            <div>
-                <div className="flex items-center gap-2">
-                    <CardTitle>{order.shopifyOrderNumber || order.id}</CardTitle>
+        <div className="flex justify-between items-start gap-2">
+            <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                    <CardTitle className="truncate">{order.shopifyOrderNumber || order.id}</CardTitle>
                     {order.financialStatus && (
-                        <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${getFinancialStatusStyle(order.financialStatus)}`}>
+                        <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${getFinancialStatusStyle(order.financialStatus)} whitespace-nowrap`}>
                             {order.financialStatus}
                         </span>
                     )}
                 </div>
-                <CardDescription>{order.productName}</CardDescription>
+                <div className="mt-2">
+                    <ul className="list-disc list-inside text-sm text-slate-600">
+                        {displayProducts.map((product, index) => (
+                            <li key={index} className="truncate" title={product}>
+                                {product}
+                            </li>
+                        ))}
+                    </ul>
+                    {remainingCount > 0 && (
+                        <p className="text-xs text-slate-400 mt-1 ml-4">+ {remainingCount} more item{remainingCount > 1 ? 's' : ''}</p>
+                    )}
+                </div>
             </div>
-            <div className="flex flex-col items-end gap-2">
-              <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${getPriorityStyle(order.priority)}`}>
+            <div className="flex flex-col items-end gap-2 flex-shrink-0">
+              <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${getPriorityStyle(order.priority)} whitespace-nowrap`}>
                   {order.priority}
               </span>
               {!hideStatus && (
-                <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${getStatusColor(order.status)}`}>
+                <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${getStatusColor(order.status)} whitespace-nowrap`}>
                     {order.status}
                 </span>
               )}
@@ -88,7 +104,7 @@ const OrderCard: React.FC<OrderCardProps> = ({ order, onViewDetails, actions, hi
       </CardHeader>
       <CardContent className="flex-grow">
         <div className="text-sm text-slate-600 space-y-1">
-          {!hideCustomerInfo && <p><strong>Customer:</strong> {order.customerName}</p>}
+          {!hideCustomerInfo && <p className="truncate"><strong>Customer:</strong> {order.customerName}</p>}
           {!hideDates && <p><strong>Last Update:</strong> {formattedDate}</p>}
           {digitizerName && order.status === OrderStatus.TEAM_REVIEW && (
             <p className="pt-2 mt-2 border-t border-slate-200">
@@ -97,7 +113,7 @@ const OrderCard: React.FC<OrderCardProps> = ({ order, onViewDetails, actions, hi
           )}
         </div>
       </CardContent>
-      <CardFooter className="flex justify-between items-center">
+      <CardFooter className="flex justify-between items-center mt-auto">
         <Button variant="outline" size="sm" onClick={onViewDetails}>
           View Details
         </Button>
