@@ -126,7 +126,7 @@ const OrdersDashboard: React.FC<{
 };
 
 export const IncomingQueueView: React.FC<{ onViewOrderDetails: (order: Order) => void }> = ({ onViewOrderDetails }) => {
-    const { orders, users, updateOrderStatus, isLoading, currentUser } = useAppContext();
+    const { orders, users, updateOrderStatus, isLoading } = useAppContext();
     const [rejectModalOpen, setRejectModalOpen] = useState(false);
     const [rejectionNote, setRejectionNote] = useState('');
     const [rejectionFiles, setRejectionFiles] = useState<File[]>([]);

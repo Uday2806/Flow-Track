@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Role, OrderStatus, Order, User, Priority } from '../types';
+import { Role, OrderStatus, Order, Priority } from '../types';
 import DashboardLayout from '../components/shared/DashboardLayout';
 import { useAppContext } from '../store/AppContext';
 import OrderCard from '../components/shared/OrderCard';

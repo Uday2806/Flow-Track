@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { Role, OrderStatus, Order, Priority } from '../types';
 import DashboardLayout from '../components/shared/DashboardLayout';
@@ -218,7 +219,12 @@ const VendorPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
         </div>
       )}
 
-      <OrderDetailsModal order={selectedOrder} onClose={() => setSelectedOrder(null)} hideCustomerInfo={true} />
+      <OrderDetailsModal 
+        order={selectedOrder} 
+        onClose={() => setSelectedOrder(null)} 
+        hideCustomerInfo={true} 
+        hideAssociatedStaff={true} 
+      />
       
       <Modal 
         isOpen={isShipModalOpen} 

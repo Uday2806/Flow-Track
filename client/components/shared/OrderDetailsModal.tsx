@@ -10,6 +10,7 @@ interface OrderDetailsModalProps {
   onClose: () => void;
   hideCustomerInfo?: boolean;
   hideDates?: boolean;
+  hideAssociatedStaff?: boolean;
 }
 
 const isImage = (fileName: string) => {
@@ -43,7 +44,7 @@ const AttachmentItem: React.FC<{ attachment: Attachment }> = ({ attachment }) =>
 );
 
 
-const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, onClose, hideCustomerInfo, hideDates }) => {
+const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, onClose, hideCustomerInfo, hideDates, hideAssociatedStaff }) => {
   if (!order) return null;
 
   return (
@@ -128,21 +129,23 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, onClose, h
           </div>
           
           {/* Associated Staff Section */}
-          <div>
-            <h4 className="font-semibold">Associated Staff</h4>
-            {order.associatedUsers && order.associatedUsers.length > 0 ? (
-              <div className="mt-2 space-y-2 max-h-40 overflow-y-auto pr-2 -mr-2">
-                {order.associatedUsers.map(user => (
-                  <div key={user.id} className="p-2 bg-slate-50 rounded-md border text-sm">
-                    <p className="font-semibold text-slate-900">{user.name} <span className="text-xs font-medium text-slate-500">({user.role})</span></p>
-                    <p className="text-slate-500">{user.email}</p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-slate-500 mt-2">No staff have been associated with this order yet.</p>
-            )}
-          </div>
+          {!hideAssociatedStaff && (
+            <div>
+              <h4 className="font-semibold">Associated Staff</h4>
+              {order.associatedUsers && order.associatedUsers.length > 0 ? (
+                <div className="mt-2 space-y-2 max-h-40 overflow-y-auto pr-2 -mr-2">
+                  {order.associatedUsers.map(user => (
+                    <div key={user.id} className="p-2 bg-slate-50 rounded-md border text-sm">
+                      <p className="font-semibold text-slate-900">{user.name} <span className="text-xs font-medium text-slate-500">({user.role})</span></p>
+                      <p className="text-slate-500">{user.email}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-500 mt-2">No staff have been associated with this order yet.</p>
+              )}
+            </div>
+          )}
 
 
           {/* Attachments Section */}
