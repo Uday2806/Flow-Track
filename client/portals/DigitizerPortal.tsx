@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { Role, OrderStatus, Order, User, Priority } from '../types';
 import DashboardLayout from '../components/shared/DashboardLayout';
@@ -154,7 +155,9 @@ const DigitizerPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
 
     for (const order of allDigitizerOrders) {
         const lastNote = order.notes[order.notes.length - 1];
-        if (lastNote?.startsWith('Team rejected:')) {
+        // Check if the last note contains "Team rejected:".
+        // The server appends "Role (Name): " to notes, so we use includes() instead of startsWith()
+        if (lastNote?.includes('Team rejected:')) {
             rejected.push(order);
         } else {
             fresh.push(order);
@@ -202,7 +205,6 @@ const DigitizerPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
 
   // Logic for My Records View
   const { assignedOrders, stats } = useMemo(() => {
-    // FIX: Provide default values for stats when currentUser is null to avoid type errors.
     if (!currentUser) return { assignedOrders: [], stats: { total: 0, active: 0, inReview: 0, completed: 0 } };
     
     const assignedOrders = orders.filter(o => o.digitizerId === currentUser.id);
