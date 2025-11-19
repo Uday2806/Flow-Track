@@ -16,7 +16,10 @@ const getNextOrderId = async () => {
 const streamUpload = (fileBuffer) => {
     return new Promise((resolve, reject) => {
         const stream = cloudinary.uploader.upload_stream(
-            { folder: 'flowtrack' },
+            { 
+              folder: 'flowtrack',
+              resource_type: 'auto' // Allow any file type (raw, image, video)
+            },
             (error, result) => {
                 if (result) {
                     resolve(result);

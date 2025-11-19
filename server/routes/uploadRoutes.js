@@ -1,3 +1,4 @@
+
 import express from 'express';
 import { v2 as cloudinary } from 'cloudinary';
 import multer from 'multer';
@@ -16,19 +17,9 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// Configure Multer for memory storage with validation
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB file size limit
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|pdf|dst|svg|gif/;
-    const mimetype = allowedTypes.test(file.mimetype);
-    const extname = allowedTypes.test(file.originalname.toLowerCase());
-    if (mimetype && extname) {
-      return cb(null, true);
-    }
-    cb(new Error('File type not supported.'));
-  }
 });
 
 // The upload handler function
@@ -41,7 +32,10 @@ const handleUpload = (req, res) => {
   const streamUpload = (fileBuffer) => {
     return new Promise((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
-        { folder: 'flowtrack' },
+        { 
+          folder: 'flowtrack',
+          resource_type: 'auto' // Automatically detect format (image, raw, video, etc.)
+        },
         (error, result) => {
           if (result) {
             resolve(result);
