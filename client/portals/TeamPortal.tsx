@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { Role, OrderStatus, Order, User, Priority } from '../types';
 import DashboardLayout from '../components/shared/DashboardLayout';
@@ -128,6 +129,7 @@ export const IncomingQueueView: React.FC<{ onViewOrderDetails: (order: Order) =>
     const { orders, users, updateOrderStatus, isLoading, currentUser } = useAppContext();
     const [rejectModalOpen, setRejectModalOpen] = useState(false);
     const [rejectionNote, setRejectionNote] = useState('');
+    const [rejectionFiles, setRejectionFiles] = useState<File[]>([]);
     const [sendToDigitizerModalOpen, setSendToDigitizerModalOpen] = useState(false);
     const [orderToSend, setOrderToSend] = useState<Order | null>(null);
     const [selectedDigitizerId, setSelectedDigitizerId] = useState('');
@@ -145,14 +147,17 @@ export const IncomingQueueView: React.FC<{ onViewOrderDetails: (order: Order) =>
 
     const openRejectModal = (order: Order) => {
         setLocalSelectedOrder(order);
+        setRejectionNote('');
+        setRejectionFiles([]);
         setRejectModalOpen(true);
     };
 
-    const handleReject = () => {
+    const handleReject = async () => {
         if (localSelectedOrder && rejectionNote) {
-            updateOrderStatus(localSelectedOrder.id, OrderStatus.AT_DIGITIZER, `Team rejected: ${rejectionNote}`);
+            await updateOrderStatus(localSelectedOrder.id, OrderStatus.AT_DIGITIZER, `Team rejected: ${rejectionNote}`, {}, rejectionFiles);
             setRejectModalOpen(false);
             setRejectionNote('');
+            setRejectionFiles([]);
             setLocalSelectedOrder(null);
         }
     };
@@ -224,9 +229,39 @@ export const IncomingQueueView: React.FC<{ onViewOrderDetails: (order: Order) =>
     return (
         <>
             <OrdersDashboard title="Incoming Queue" orders={teamOrders} users={users} onViewDetails={onViewOrderDetails} renderActions={renderTeamActions} />
-            <Modal isOpen={rejectModalOpen} onClose={() => setRejectModalOpen(false)} title={`Reject Order ${localSelectedOrder?.shopifyOrderNumber || localSelectedOrder?.id}`} footer={<div className="flex justify-end space-x-2"><Button variant="outline" onClick={() => setRejectModalOpen(false)}>Cancel</Button><Button variant="destructive" onClick={handleReject} disabled={!rejectionNote}>Confirm Rejection</Button></div>}>
-                <p>Please provide a reason for rejecting the design. This will be sent back to the digitizer.</p>
-                <textarea value={rejectionNote} onChange={(e) => setRejectionNote(e.target.value)} className="w-full mt-2 p-2 border rounded-md bg-slate-50 border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-800 focus:border-transparent transition-shadow" placeholder="e.g., Colors are incorrect..." rows={3} />
+            <Modal isOpen={rejectModalOpen} onClose={() => setRejectModalOpen(false)} title={`Reject Order ${localSelectedOrder?.shopifyOrderNumber || localSelectedOrder?.id}`} footer={<div className="flex justify-end space-x-2"><Button variant="outline" onClick={() => setRejectModalOpen(false)}>Cancel</Button><Button variant="destructive" onClick={handleReject} disabled={!rejectionNote || isLoading}>Confirm Rejection</Button></div>}>
+                <div className="space-y-4">
+                    <div>
+                        <p className="text-sm text-slate-600 mb-2">Please provide a reason for rejecting the design. This will be sent back to the digitizer.</p>
+                        <textarea value={rejectionNote} onChange={(e) => setRejectionNote(e.target.value)} className="w-full p-2 border rounded-md bg-slate-50 border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-800 focus:border-transparent transition-shadow" placeholder="e.g., Colors are incorrect..." rows={3} />
+                    </div>
+                    
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Attach Reference File(s) (Optional)</label>
+                        <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-slate-300 border-dashed rounded-md">
+                            <div className="space-y-1 text-center">
+                                <FileUpIcon className="mx-auto h-12 w-12 text-slate-400" />
+                                <div className="flex text-sm text-slate-600">
+                                    <label htmlFor="rejection-file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-slate-800 hover:text-slate-600 focus-within:outline-none">
+                                        <span>Upload files</span>
+                                        <input id="rejection-file-upload" name="rejection-file-upload" type="file" multiple className="sr-only" onChange={e => setRejectionFiles(e.target.files ? Array.from(e.target.files) : [])} />
+                                    </label>
+                                </div>
+                                <p className="text-xs text-slate-500">Select one or more files to attach</p>
+                            </div>
+                        </div>
+                         {rejectionFiles.length > 0 && (
+                            <div className="mt-3 text-sm">
+                                <h4 className="font-medium text-slate-800">Selected files:</h4>
+                                <ul className="mt-1 list-disc list-inside bg-slate-50 p-2 rounded-md border max-h-28 overflow-y-auto">
+                                    {rejectionFiles.map((file, index) => (
+                                        <li key={index} className="text-slate-600 truncate">{file.name}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+                    </div>
+                </div>
             </Modal>
             <Modal isOpen={sendToDigitizerModalOpen} onClose={() => setSendToDigitizerModalOpen(false)} title={`Send Order ${orderToSend?.shopifyOrderNumber || orderToSend?.id} to Digitizer`} footer={<div className="flex justify-end space-x-2"><Button variant="outline" onClick={() => setSendToDigitizerModalOpen(false)}>Cancel</Button><Button onClick={handleConfirmSendToDigitizer} disabled={!selectedDigitizerId || filesToAttach.length === 0 || isLoading}>Confirm & Send</Button></div>}>
                 <div className="space-y-4">
