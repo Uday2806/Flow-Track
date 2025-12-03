@@ -1,9 +1,10 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Order, Attachment } from '../../types';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 import { DownloadIcon, FileIcon } from '../icons/Icons';
+import { useAppContext } from '../../store/AppContext';
 
 interface OrderDetailsModalProps {
   order: Order | null;
@@ -14,34 +15,93 @@ interface OrderDetailsModalProps {
 }
 
 const isImage = (fileName: string) => {
-    return /\.(jpg|jpeg|png|gif|svg)$/i.test(fileName);
+    return /\.(jpg|jpeg|png|gif|svg|webp)$/i.test(fileName);
 };
 
-const AttachmentItem: React.FC<{ attachment: Attachment }> = ({ attachment }) => (
-    <div className="p-3 mb-2 border rounded-md bg-slate-50 space-y-3">
-        {isImage(attachment.name) ? (
-            <a href={attachment.url} target="_blank" rel="noopener noreferrer">
-                <img src={attachment.url} alt={attachment.name} className="w-full h-auto rounded-md object-cover max-h-60 cursor-pointer" />
-            </a>
-        ) : (
-            <div className="flex items-center text-slate-600 p-2">
-                <FileIcon className="w-10 h-10 mr-4 text-slate-400 flex-shrink-0" />
-                <p className="font-semibold text-sm truncate">{attachment.name}</p>
-            </div>
-        )}
-        <div className="flex items-center justify-between text-xs text-slate-500">
-            <span>
-                Uploaded by {attachment.uploadedBy} on {new Date(attachment.timestamp).toLocaleDateString()}
-            </span>
-            <a href={attachment.url} target="_blank" rel="noopener noreferrer" download={attachment.name}>
-                <Button variant="secondary" size="sm" className="flex items-center">
+const AttachmentItem: React.FC<{ attachment: Attachment }> = ({ attachment }) => {
+    const { addToast } = useAppContext();
+    const [isDownloading, setIsDownloading] = useState(false);
+
+    const handleDownload = async (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        if (isDownloading) return;
+
+        try {
+            setIsDownloading(true);
+            const token = localStorage.getItem('flowtrack_token');
+            
+            // Fetch the file through our server proxy
+            // passing the token in headers handles authentication securely
+            const response = await fetch(`/api/upload/download?url=${encodeURIComponent(attachment.url)}&filename=${encodeURIComponent(attachment.name)}`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.message || 'Download failed');
+            }
+
+            // Create a blob from the stream
+            const blob = await response.blob();
+            
+            // Create a temporary link to trigger the browser's download
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = attachment.name;
+            document.body.appendChild(a);
+            a.click();
+            
+            // Cleanup
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            addToast({ type: 'success', message: 'Download started' });
+
+        } catch (error) {
+            console.error('Download error:', error);
+            addToast({ type: 'error', message: 'Failed to download file. Please try again.' });
+        } finally {
+            setIsDownloading(false);
+        }
+    };
+
+    return (
+        <div className="p-3 mb-2 border rounded-md bg-slate-50 space-y-3">
+            {isImage(attachment.name) ? (
+                <div className="cursor-pointer" onClick={() => window.open(attachment.url, '_blank')}>
+                    <img src={attachment.url} alt={attachment.name} className="w-full h-auto rounded-md object-cover max-h-60" />
+                </div>
+            ) : (
+                <div className="flex items-center text-slate-600 p-2">
+                    <FileIcon className="w-10 h-10 mr-4 text-slate-400 flex-shrink-0" />
+                    <p className="font-semibold text-sm truncate">{attachment.name}</p>
+                </div>
+            )}
+            <div className="flex items-center justify-between text-xs text-slate-500">
+                <span>
+                    Uploaded by {attachment.uploadedBy} on {new Date(attachment.timestamp).toLocaleDateString()}
+                </span>
+                <Button 
+                    variant="secondary" 
+                    size="sm" 
+                    className="flex items-center"
+                    onClick={handleDownload}
+                    disabled={isDownloading}
+                >
                     <DownloadIcon className="w-3.5 h-3.5 mr-1.5" />
-                    Download
+                    {isDownloading ? 'Downloading...' : 'Download'}
                 </Button>
-            </a>
+            </div>
         </div>
-    </div>
-);
+    );
+};
 
 
 const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, onClose, hideCustomerInfo, hideDates, hideAssociatedStaff }) => {

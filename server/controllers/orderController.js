@@ -13,12 +13,13 @@ const getNextOrderId = async () => {
 };
 
 // Helper function to upload a file buffer to Cloudinary
-const streamUpload = (fileBuffer) => {
+const streamUpload = (fileBuffer, fileName) => {
+    const isPdf = fileName && fileName.toLowerCase().endsWith('.pdf');
     return new Promise((resolve, reject) => {
         const stream = cloudinary.uploader.upload_stream(
             { 
               folder: 'flowtrack',
-              resource_type: 'auto' // Allow any file type (raw, image, video)
+              resource_type: isPdf ? 'raw' : 'auto' // Force 'raw' for PDFs to prevent image processing/header issues
             },
             (error, result) => {
                 if (result) {
@@ -282,7 +283,7 @@ export const updateOrderStatus = async (req, res) => {
         if (req.files && req.files.length > 0) {
             try {
                 for (const file of req.files) {
-                    const uploadResult = await streamUpload(file.buffer);
+                    const uploadResult = await streamUpload(file.buffer, file.originalname);
                     const newAttachment = {
                         id: `att-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
                         name: file.originalname,
