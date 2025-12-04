@@ -245,8 +245,11 @@ export const updateOrderStatus = async (req, res) => {
         if (!order) return res.status(404).json({ message: "Order not found" });
 
         const currentStatus = order.status;
+
+        // Allow update if status changes OR if reassigning digitizer while 'At Digitizer'
+        const isReassigningDigitizer = currentStatus === 'At Digitizer' && newStatus === 'At Digitizer' && digitizerId && digitizerId !== order.digitizerId;
         
-        if (currentStatus === newStatus) {
+        if (currentStatus === newStatus && !isReassigningDigitizer) {
             return res.status(409).json({ message: "This action cannot be completed because the order is already in this state. Please refresh the page." });
         }
 
@@ -260,9 +263,14 @@ export const updateOrderStatus = async (req, res) => {
         const allowedPreviousStatuses = transitions[newStatus];
         if (allowedPreviousStatuses) {
             if (newStatus === 'At Digitizer') {
-                const expectedPreviousStatus = (note && note.startsWith('Team rejected:')) ? 'Team Review' : 'At Team';
-                if (currentStatus !== expectedPreviousStatus) {
-                     return res.status(409).json({ message: "This action cannot be completed because the order's status was updated by someone else. Please refresh the page." });
+                // If reassigning, current status is allowed to be 'At Digitizer'
+                if (isReassigningDigitizer) {
+                    // Logic allows pass-through
+                } else {
+                    const expectedPreviousStatus = (note && note.startsWith('Team rejected:')) ? 'Team Review' : 'At Team';
+                    if (currentStatus !== expectedPreviousStatus) {
+                         return res.status(409).json({ message: "This action cannot be completed because the order's status was updated by someone else. Please refresh the page." });
+                    }
                 }
             } else if (!allowedPreviousStatuses.includes(currentStatus)) {
                 return res.status(409).json({ message: "This action cannot be completed because the order's status was updated by someone else. Please refresh the page." });

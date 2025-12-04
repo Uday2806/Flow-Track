@@ -8,7 +8,7 @@ import OrderDetailsModal from '../components/shared/OrderDetailsModal';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/Card';
-import { CheckCircleIcon, XCircleIcon, SearchIcon, ChevronLeftIcon, ChevronRightIcon, FileUpIcon, ShopifyIcon } from '../components/icons/Icons';
+import { CheckCircleIcon, XCircleIcon, SearchIcon, ChevronLeftIcon, ChevronRightIcon, FileUpIcon, ShopifyIcon, UsersIcon } from '../components/icons/Icons';
 
 const ITEMS_PER_PAGE = 12;
 const DIGITIZERS_PER_PAGE = 6;
@@ -126,7 +126,7 @@ const OrdersDashboard: React.FC<{
 };
 
 export const IncomingQueueView: React.FC<{ onViewOrderDetails: (order: Order) => void }> = ({ onViewOrderDetails }) => {
-    const { orders, users, updateOrderStatus, isLoading } = useAppContext();
+    const { orders, users, updateOrderStatus, isLoading, currentUser } = useAppContext();
     const [rejectModalOpen, setRejectModalOpen] = useState(false);
     const [rejectionNote, setRejectionNote] = useState('');
     const [rejectionFiles, setRejectionFiles] = useState<File[]>([]);
@@ -597,10 +597,17 @@ export const ShopifySyncModal: React.FC<{
 };
 
 const TeamPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
-  const { orders, users } = useAppContext();
+  const { orders, users, updateOrderStatus, isLoading } = useAppContext();
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [activeTab, setActiveTab] = useState('incoming_queue');
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+  
+  // Reassign Modal State
+  const [reassignModalOpen, setReassignModalOpen] = useState(false);
+  const [orderToReassign, setOrderToReassign] = useState<Order | null>(null);
+  const [newDigitizerId, setNewDigitizerId] = useState('');
+
+  const digitizers = users.filter(u => u.role === Role.DIGITIZER);
 
   const tabCounts = useMemo(() => ({
     incoming_queue: orders.filter(o => [OrderStatus.AT_TEAM, OrderStatus.TEAM_REVIEW].includes(o.status)).length,
@@ -608,6 +615,39 @@ const TeamPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
     out_for_delivery: orders.filter(o => o.status === OrderStatus.OUT_FOR_DELIVERY).length
   }), [orders]);
   
+  const openReassignModal = (order: Order) => {
+      setOrderToReassign(order);
+      setNewDigitizerId('');
+      setReassignModalOpen(true);
+  };
+
+  const handleReassign = async () => {
+    if (orderToReassign && newDigitizerId) {
+        const newDigitizer = users.find(u => u.id === newDigitizerId);
+        const oldDigitizer = users.find(u => u.id === orderToReassign.digitizerId);
+        
+        const note = `Reassigned from ${oldDigitizer?.name || 'Unknown'} to ${newDigitizer?.name || 'Unknown'} by Team.`;
+        
+        await updateOrderStatus(orderToReassign.id, OrderStatus.AT_DIGITIZER, note, { digitizerId: newDigitizerId });
+        
+        setReassignModalOpen(false);
+        setOrderToReassign(null);
+        setNewDigitizerId('');
+    }
+  };
+
+  const renderProgressActions = (order: Order) => {
+      if (order.status === OrderStatus.AT_DIGITIZER) {
+          return (
+              <Button size="sm" variant="outline" onClick={() => openReassignModal(order)}>
+                  <UsersIcon className="w-4 h-4 mr-2" />
+                  Switch Digitizer
+              </Button>
+          )
+      }
+      return null;
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case 'track_progress': {
@@ -620,6 +660,7 @@ const TeamPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
             orders={ordersInProgress}
             users={users}
             onViewDetails={setSelectedOrder}
+            renderActions={renderProgressActions}
           />
         );
       }
@@ -659,6 +700,41 @@ const TeamPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
 
       <OrderDetailsModal order={selectedOrder} onClose={() => setSelectedOrder(null)} />
       <ShopifySyncModal isOpen={isSyncModalOpen} onClose={() => setIsSyncModalOpen(false)} />
+      
+      <Modal 
+        isOpen={reassignModalOpen} 
+        onClose={() => setReassignModalOpen(false)} 
+        title={`Reassign Order ${orderToReassign?.shopifyOrderNumber || orderToReassign?.id}`}
+        footer={
+            <div className="flex justify-end space-x-2">
+                <Button variant="outline" onClick={() => setReassignModalOpen(false)}>Cancel</Button>
+                <Button onClick={handleReassign} disabled={!newDigitizerId || isLoading}>Confirm Switch</Button>
+            </div>
+        }
+      >
+        <div className="space-y-4">
+            <p className="text-sm text-slate-600">
+                This order is currently with <strong>{users.find(u => u.id === orderToReassign?.digitizerId)?.name}</strong>. 
+                Select a new digitizer to take over this order.
+            </p>
+            <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Select New Digitizer</label>
+                <select 
+                    value={newDigitizerId} 
+                    onChange={e => setNewDigitizerId(e.target.value)} 
+                    className="w-full p-2 border rounded-md bg-white"
+                >
+                    <option value="" disabled>Select a digitizer...</option>
+                    {digitizers
+                        .filter(d => d.id !== orderToReassign?.digitizerId) // Exclude current digitizer
+                        .map(d => (
+                            <option key={d.id} value={d.id}>{d.name}</option>
+                        ))
+                    }
+                </select>
+            </div>
+        </div>
+      </Modal>
     </DashboardLayout>
   );
 };
