@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Role, OrderStatus, Order, Priority } from '../types';
+import { Role, OrderStatus, Order, User, Priority } from '../types';
 import DashboardLayout from '../components/shared/DashboardLayout';
 import { useAppContext } from '../store/AppContext';
 import OrderCard from '../components/shared/OrderCard';
@@ -154,14 +154,17 @@ const DigitizerPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
     const fresh: Order[] = [];
 
     for (const order of allDigitizerOrders) {
-        const lastNote = order.notes[order.notes.length - 1];
-        // Check if the last note contains "Team rejected:".
-        // The server appends "Role (Name): " to notes, so we use includes() instead of startsWith()
-        if (lastNote?.includes('Team rejected:')) {
-            rejected.push(order);
-        } else {
-            fresh.push(order);
+        if (order.notes.length > 0) {
+            const lastNote = order.notes[order.notes.length - 1];
+            // Handle structured note object or legacy string
+            const noteContent = typeof lastNote === 'string' ? lastNote : lastNote.content;
+            
+            if (noteContent && noteContent.includes('Team rejected:')) {
+                rejected.push(order);
+                continue;
+            }
         }
+        fresh.push(order);
     }
     return { newOrders: fresh, rejectedOrders: rejected };
   }, [orders, CURRENT_DIGITIZER_ID]);

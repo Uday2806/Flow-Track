@@ -30,6 +30,15 @@ export interface Attachment {
   fromShopify?: boolean;
 }
 
+export interface Note {
+  id: string;
+  content: string;
+  authorName: string;
+  authorRole: string;
+  targetRole?: string; // To designate which "column" or context this note belongs to
+  timestamp: string;
+}
+
 export interface AssociatedUser {
   id: string;
   name: string;
@@ -46,7 +55,7 @@ export interface Order {
   createdAt: string;
   updatedAt: string;
   attachments: Attachment[];
-  notes: string[];
+  notes: (Note | string)[]; // Supports both old strings and new Note objects
   digitizerId?: string;
   vendorId?: string;
   associatedUsers?: AssociatedUser[];

@@ -14,6 +14,7 @@ interface AppState {
   logout: () => void;
   updateOrderStatus: (orderId: string, status: OrderStatus, note?: string, updates?: { digitizerId?: string; vendorId?: string; priority?: Priority }, attachmentFiles?: File[] | null) => Promise<void>;
   addOrderNote: (orderId: string, note: string) => Promise<void>;
+  editOrderNote: (orderId: string, noteId: string, content: string) => Promise<void>;
   deleteAttachment: (orderId: string, attachmentId: string) => Promise<void>;
   addUser: (user: Omit<User, 'id'>) => Promise<void>;
   updateUser: (user: User) => Promise<void>;
@@ -237,6 +238,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }), `Remark added to order ${orderId}.`);
   };
 
+  const editOrderNote = async (orderId: string, noteId: string, content: string) => {
+    await handleApiCall(() => fetch(`${API_URL}/orders/${orderId}/notes/${noteId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ content }),
+    }), `Note updated successfully.`);
+  };
+
   const deleteAttachment = async (orderId: string, attachmentId: string) => {
     await handleApiCall(() => fetch(`${API_URL}/orders/${orderId}/attachments/${attachmentId}`, {
         method: 'DELETE',
@@ -307,6 +316,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     logout,
     updateOrderStatus,
     addOrderNote,
+    editOrderNote,
     deleteAttachment,
     addUser,
     updateUser,

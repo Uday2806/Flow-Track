@@ -1,5 +1,6 @@
 
 import Order from '../models/Order.js';
+import User from '../models/User.js'; // Imported to fetch names
 import axios from 'axios';
 import { v2 as cloudinary } from 'cloudinary';
 import streamifier from 'streamifier';
@@ -192,8 +193,22 @@ export const syncShopifyOrders = async (req, res) => {
         status: 'At Team',
         attachments: attachments,
         notes: [
-          `Imported from Shopify. Order #${shopifyOrder.order_number}`,
-          'Order automatically assigned to Team for processing.'
+          {
+            id: `note-${Date.now()}-1`,
+            content: `Imported from Shopify. Order #${shopifyOrder.order_number}`,
+            authorName: 'System',
+            authorRole: 'System',
+            targetRole: 'Team',
+            timestamp: new Date()
+          },
+          {
+            id: `note-${Date.now()}-2`,
+            content: 'Order automatically assigned to Team for processing.',
+            authorName: 'System',
+            authorRole: 'System',
+            targetRole: 'Team',
+            timestamp: new Date()
+          }
         ],
         associatedUsers: [],
         shopifyOrderId: shopifyOrder.id.toString(),
@@ -267,6 +282,8 @@ export const updateOrderStatus = async (req, res) => {
                 if (isReassigningDigitizer) {
                     // Logic allows pass-through
                 } else {
+                    const lastNote = order.notes[order.notes.length - 1];
+                    const lastNoteContent = typeof lastNote === 'string' ? lastNote : (lastNote?.content || '');
                     const expectedPreviousStatus = (note && note.startsWith('Team rejected:')) ? 'Team Review' : 'At Team';
                     if (currentStatus !== expectedPreviousStatus) {
                          return res.status(409).json({ message: "This action cannot be completed because the order's status was updated by someone else. Please refresh the page." });
@@ -314,7 +331,93 @@ export const updateOrderStatus = async (req, res) => {
         if (digitizerId !== undefined) order.digitizerId = digitizerId;
         if (vendorId !== undefined) order.vendorId = vendorId;
         if (priority) order.priority = priority;
-        if (note) order.notes.push(`${user.role} (${user.name}): ${note}`);
+        
+        // Determine the target column/context for this note based on the action and construct proper message
+        let targetRole = 'Team'; // Default context
+        let finalNoteContent = note ? note.trim() : '';
+        
+        // === 1. Sending TO Digitizer ===
+        if (newStatus === 'At Digitizer') {
+            targetRole = 'Digitizer';
+            let assignedName = 'Digitizer';
+            
+            // Rejection case
+            if (note && note.startsWith('Team rejected:')) {
+                // Just keep the rejection note as is
+            } else {
+                 // Assignment case
+                if (digitizerId) {
+                    const dUser = await User.findOne({ id: digitizerId });
+                    if (dUser) assignedName = dUser.name;
+                }
+                
+                // Construct clean chat-like message
+                const userNote = note && note.startsWith('Sent to digitizer.') 
+                    ? note.replace('Sent to digitizer.', '').replace(/^ Note: /, '').trim() // Strip old auto-gen text
+                    : (note || '');
+                
+                // For assignment, we want to show who it was assigned to
+                finalNoteContent = `Assigned to ${assignedName}`;
+                if (userNote) finalNoteContent += `\n${userNote}`;
+            }
+        } 
+        // === 2. Sending TO Vendor ===
+        else if (newStatus === 'At Vendor') {
+            targetRole = 'Vendor';
+            let assignedName = 'Vendor';
+            
+            if (vendorId) {
+                const vUser = await User.findOne({ id: vendorId });
+                if (vUser) assignedName = vUser.name;
+            }
+
+            // Construct clean chat-like message
+            const userNote = note && note.includes('Sent to vendor:') 
+                ? note.split('Note for vendor:')[1]?.trim() || '' 
+                : (note || '');
+
+            // For assignment, we want to show who it was sent to
+            finalNoteContent = `Sent to ${assignedName}`;
+            if (userNote) finalNoteContent += `\n${userNote}`;
+        }
+        // === 3. Digitizer completing task (sending back to Team) ===
+        else if (currentStatus === 'At Digitizer' && newStatus === 'Team Review') {
+             targetRole = 'Digitizer'; 
+             
+             // Remove "Digitizer: Design complete." prefix to allow for pure chat experience
+             const userNote = note && note.startsWith('Digitizer: Design complete.')
+                ? note.replace('Digitizer: Design complete.', '').replace(/^ Note: /, '').trim()
+                : (note || '');
+             
+             // Only show user note if present. If empty, show nothing (no system message)
+             finalNoteContent = userNote;
+        }
+        // === 4. Vendor shipping (sending back to Team/Completed) ===
+        else if (currentStatus === 'At Vendor' && newStatus === 'Out for Delivery') {
+            targetRole = 'Vendor';
+
+             const userNote = note && note.startsWith('Vendor: Order has been shipped.')
+                ? note.replace('Vendor: Order has been shipped.', '').replace(/^ Note: /, '').trim()
+                : (note || '');
+
+            // Only show user note if present. If empty, show nothing (no system message)
+            finalNoteContent = userNote;
+        }
+
+        // Only add note if there is content
+        if (finalNoteContent) {
+            order.notes.push({
+                id: `note-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+                content: finalNoteContent,
+                authorName: user.name,
+                authorRole: user.role,
+                targetRole: targetRole,
+                timestamp: new Date()
+            });
+        }
+        
+        // Since notes is Mixed type, we must mark it modified if we push to it (Mongoose 5/6 quirk with mixed types)
+        order.markModified('notes');
         
         const updatedOrder = await order.save();
         res.status(200).json(updatedOrder);
@@ -339,7 +442,15 @@ export const addOrderNote = async (req, res) => {
             return res.status(404).json({ message: "Order not found" });
         }
 
-        order.notes.push(`${user.role} (${user.name}): ${note}`);
+        // Standard add note defaults to internal team note unless specified otherwise
+        order.notes.push({
+            id: `note-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+            content: note,
+            authorName: user.name,
+            authorRole: user.role,
+            targetRole: 'Team',
+            timestamp: new Date()
+        });
         
         // Add user to associated users if they are not already
         const isAlreadyAssociated = order.associatedUsers.some(u => u.id === user.id);
@@ -352,10 +463,50 @@ export const addOrderNote = async (req, res) => {
             });
         }
 
+        order.markModified('notes');
         const updatedOrder = await order.save();
         res.status(200).json(updatedOrder);
     } catch (error) {
         res.status(500).json({ message: "Error adding note to order", error: error.message });
+    }
+};
+
+export const updateOrderNote = async (req, res) => {
+    try {
+        const { id, noteId } = req.params;
+        const { content } = req.body;
+        const user = req.user;
+
+        if (!content) return res.status(400).json({ message: "Content is required" });
+
+        // Only Team and Admin can edit notes
+        if (user.role !== 'Team' && user.role !== 'Admin') {
+             return res.status(403).json({ message: "Not authorized to edit notes" });
+        }
+
+        const order = await Order.findOne({ id });
+        if (!order) return res.status(404).json({ message: "Order not found" });
+
+        const noteIndex = order.notes.findIndex(n => typeof n !== 'string' && n.id === noteId);
+        
+        if (noteIndex === -1) return res.status(404).json({ message: "Note not found or cannot be edited" });
+
+        const note = order.notes[noteIndex];
+        
+        // Allow Team to edit any note created by 'Team' role
+        if (note.authorRole !== 'Team' && user.role !== 'Admin') {
+             return res.status(403).json({ message: "You can only edit Team notes." });
+        }
+
+        // Update content
+        order.notes[noteIndex].content = content;
+        
+        order.markModified('notes');
+        await order.save();
+        res.status(200).json(order);
+
+    } catch (error) {
+        res.status(500).json({ message: "Error updating note", error: error.message });
     }
 };
 
@@ -379,13 +530,3 @@ export const deleteOrderAttachment = async (req, res) => {
         res.status(500).json({ message: "Error deleting attachment", error: error.message });
     }
 };
-
-// Utility to seed database with initial mock data
-export const seedOrders = async (req, res) => {
-    try {
-        await Order.deleteMany({}); // Clear existing orders
-        res.status(200).send('Orders collection has been cleared. Use Shopify Sync to import real orders.');
-    } catch (error) {
-        res.status(500).json({ message: "Error clearing orders collection", error: error.message });
-    }
-}

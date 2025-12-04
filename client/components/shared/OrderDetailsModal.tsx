@@ -1,9 +1,9 @@
 
 import React, { useState } from 'react';
-import { Order, Attachment, Role } from '../../types';
+import { Order, Attachment, Role, Note } from '../../types';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
-import { DownloadIcon, FileIcon, TrashIcon } from '../icons/Icons';
+import { DownloadIcon, FileIcon, TrashIcon, EditIcon } from '../icons/Icons';
 import { useAppContext } from '../../store/AppContext';
 
 interface OrderDetailsModalProps {
@@ -119,9 +119,84 @@ const AttachmentItem: React.FC<{
     );
 };
 
+const NoteItem: React.FC<{ note: Note; canEdit: boolean; orderId: string }> = ({ note, canEdit, orderId }) => {
+    const { editOrderNote, isLoading } = useAppContext();
+    const [isEditing, setIsEditing] = useState(false);
+    const [editContent, setEditContent] = useState(note.content);
+
+    const handleSave = async () => {
+        if (editContent.trim() !== note.content) {
+            await editOrderNote(orderId, note.id, editContent);
+        }
+        setIsEditing(false);
+    }
+
+    if (isEditing) {
+        return (
+            <div className="mb-3 p-3 bg-white border rounded shadow-sm">
+                <textarea 
+                    className="w-full text-sm border p-2 rounded mb-2 whitespace-pre-wrap" 
+                    rows={4} 
+                    value={editContent} 
+                    onChange={e => setEditContent(e.target.value)}
+                />
+                <div className="flex justify-end gap-2">
+                    <Button size="sm" variant="outline" onClick={() => setIsEditing(false)}>Cancel</Button>
+                    <Button size="sm" onClick={handleSave} disabled={isLoading}>Save</Button>
+                </div>
+            </div>
+        )
+    }
+
+    return (
+        <div className="mb-4 flex flex-col space-y-1 group">
+            <div className="flex justify-between items-baseline px-1">
+                <span className="text-xs font-bold text-slate-700">
+                    {note.authorName} 
+                    {/* Only show role if it's Admin or System to differentiate from generic Team/Digitizer */}
+                    {['Admin', 'System'].includes(note.authorRole) && <span className="font-normal text-slate-500 ml-1">({note.authorRole})</span>}
+                </span>
+                {canEdit && (
+                    <button onClick={() => setIsEditing(true)} className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-slate-600">
+                        <EditIcon className="w-3 h-3" />
+                    </button>
+                )}
+            </div>
+            
+            <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-none p-3 shadow-sm relative">
+                <p className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">{note.content}</p>
+                <p className="text-[10px] text-slate-400 mt-2 text-right">{new Date(note.timestamp).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</p>
+            </div>
+        </div>
+    );
+};
+
+const NoteColumn: React.FC<{ title: string; notes: Note[]; bgColor: string; canEditRole: boolean; orderId: string }> = ({ title, notes, bgColor, canEditRole, orderId }) => (
+    <div className={`rounded-md p-3 h-full flex flex-col ${bgColor}`}>
+        <h5 className="font-semibold text-slate-700 mb-3 text-center border-b pb-2 sticky top-0">{title}</h5>
+        <div className="flex-grow overflow-y-auto max-h-[300px] pr-1 scrollbar-thin scrollbar-thumb-slate-300">
+            {notes.length > 0 ? (
+                notes.map((note, index) => (
+                    // Handle legacy string notes if any exist
+                    typeof note === 'string' ? (
+                        <div key={index} className="mb-2 p-2 bg-white border rounded text-sm text-slate-600">
+                            {note}
+                        </div>
+                    ) : (
+                        <NoteItem key={note.id || index} note={note} canEdit={canEditRole && (note.authorRole === 'Team' || note.authorRole === 'Admin')} orderId={orderId} />
+                    )
+                ))
+            ) : (
+                <p className="text-sm text-slate-400 text-center italic mt-4">No notes.</p>
+            )}
+        </div>
+    </div>
+);
+
 
 const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order: initialOrder, onClose, hideCustomerInfo, hideDates, hideAssociatedStaff }) => {
-  const { orders, currentUser, deleteAttachment, isLoading } = useAppContext();
+  // Added 'users' to destructuring
+  const { orders, users, currentUser, deleteAttachment, isLoading } = useAppContext();
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [attachmentToDelete, setAttachmentToDelete] = useState<Attachment | null>(null);
 
@@ -132,6 +207,10 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order: initialOrd
   if (!order) return null;
   
   const products = order.productName ? order.productName.split(', ') : [];
+  
+  // Find associated user objects for the assigned digitizer/vendor
+  const assignedDigitizer = users.find(u => u.id === order.digitizerId);
+  const assignedVendor = users.find(u => u.id === order.vendorId);
 
   const canDeleteAttachment = (attachment: Attachment) => {
       // Team and Admin can delete attachments, but ONLY if they are not from Shopify.
@@ -152,148 +231,173 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order: initialOrd
       }
   };
 
+  // Helper to categorize notes
+  const getNoteCategory = (note: Note | string): 'Team' | 'Digitizer' | 'Vendor' => {
+      if (typeof note === 'string') {
+          const lower = note.toLowerCase();
+          if (lower.includes('digitizer')) return 'Digitizer';
+          if (lower.includes('vendor') || lower.includes('approved')) return 'Vendor';
+          return 'Team';
+      }
+      
+      // If explicit target is set (new functionality)
+      if (note.targetRole === 'Digitizer') return 'Digitizer';
+      if (note.targetRole === 'Vendor') return 'Vendor';
+      if (note.targetRole === 'Team') return 'Team';
+      
+      // Fallback for notes without targetRole
+      if (note.authorRole === 'Digitizer') return 'Digitizer';
+      if (note.authorRole === 'Vendor') return 'Vendor';
+      
+      // Fallback text matching for older structured notes
+      const content = note.content.toLowerCase();
+      if (content.includes('sent to digitizer') || content.includes('team rejected')) return 'Digitizer';
+      if (content.includes('sent to vendor')) return 'Vendor';
+      
+      return 'Team';
+  };
+
+  const teamNotes = order.notes.filter(n => getNoteCategory(n) === 'Team');
+  const digitizerNotes = order.notes.filter(n => getNoteCategory(n) === 'Digitizer');
+  const vendorNotes = order.notes.filter(n => getNoteCategory(n) === 'Vendor');
+
+  const canEditTeamNotes = currentUser?.role === Role.TEAM || currentUser?.role === Role.ADMIN;
+
   return (
     <>
-        <Modal isOpen={!!order} onClose={onClose} title={`Order Details: ${order.shopifyOrderNumber || order.id}`} className="max-w-4xl">
-        {/* Main content grid: 3/5 for info, 2/5 for notes */}
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-x-8 gap-y-6">
-            
-            {/* Left Column */}
-            <div className="md:col-span-3 space-y-6">
-            
-            {/* Order Information Section */}
-            <div>
-                <div className="flex justify-between items-start mb-2">
-                <h4 className="font-semibold">Order Information</h4>
-                {order.shopifyOrderUrl && (
-                    <a href={order.shopifyOrderUrl} target="_blank" rel="noopener noreferrer">
-                    <Button variant="link" size="sm">View on Shopify</Button>
-                    </a>
-                )}
-                </div>
-                <div className="text-sm grid grid-cols-2 gap-x-4 gap-y-2 text-slate-700">
-                <div className="col-span-2 mb-2">
-                    <strong className="font-semibold text-slate-900 block mb-1">Products:</strong> 
-                    <ul className="list-disc list-inside bg-slate-50 p-2 rounded border border-slate-100">
-                        {products.map((p, i) => (
-                            <li key={i} className="py-0.5">{p}</li>
-                        ))}
-                    </ul>
-                </div>
+        <Modal isOpen={!!order} onClose={onClose} title={`Order Details: ${order.shopifyOrderNumber || order.id}`} className="max-w-6xl">
+            <div className="space-y-6">
                 
-                {!hideCustomerInfo && (
-                    <p className="col-span-2 sm:col-span-1 break-words">
-                    <strong className="font-semibold text-slate-900">Customer:</strong> {order.customerName}
-                    </p>
-                )}
-                {!hideCustomerInfo && order.customerEmail && (
-                    <p className="col-span-2 sm:col-span-1 break-words">
-                    <strong className="font-semibold text-slate-900">Email:</strong> {order.customerEmail}
-                    </p>
-                )}
-                {!hideCustomerInfo && order.customerPhone && (
-                    <p className="col-span-2 sm:col-span-1 break-words">
-                    <strong className="font-semibold text-slate-900">Phone:</strong> {order.customerPhone}
-                    </p>
-                )}
-                <p className="col-span-2 sm:col-span-1">
-                    <strong className="font-semibold text-slate-900">Status:</strong> {order.status}
-                </p>
-                {order.financialStatus && (
-                    <p className="col-span-2 sm:col-span-1">
-                    <strong className="font-semibold text-slate-900">Payment:</strong> {order.financialStatus}
-                    </p>
-                )}
-                <p className="col-span-2 sm:col-span-1">
-                    <strong className="font-semibold text-slate-900">Priority:</strong> {order.priority}
-                </p>
-                {order.shopifyOrderNumber && (
-                    <p className="col-span-2 sm:col-span-1">
-                    <strong className="font-semibold text-slate-900">Shopify ID:</strong> {order.shopifyOrderNumber}
-                    </p>
-                )}
-                <p className="col-span-2 sm:col-span-1">
-                    <strong className="font-semibold text-slate-900">Internal ID:</strong> {order.id}
-                </p>
-                {!hideDates && (
-                    <p className="col-span-2 sm:col-span-1">
-                    <strong className="font-semibold text-slate-900">Created:</strong> {new Date(order.createdAt).toLocaleString()}
-                    </p>
-                )}
-                {!hideDates && (
-                    <p className="col-span-2">
-                    <strong className="font-semibold text-slate-900">Last Updated:</strong> {new Date(order.updatedAt).toLocaleString()}
-                    </p>
-                )}
-                {order.textUnderDesign && (
-                    <p className="col-span-2 pt-2 border-t mt-2">
-                    <strong className="font-semibold text-slate-900 block">Text Under Design:</strong> 
-                    <span className="text-slate-600">{order.textUnderDesign}</span>
-                    </p>
-                )}
-                {order.shippingAddress && (
-                    <p className="col-span-2 pt-2 border-t mt-2">
-                    <strong className="font-semibold text-slate-900 block">Shipping Address:</strong> 
-                    <span className="text-slate-600">{order.shippingAddress}</span>
-                    </p>
-                )}
-                </div>
-            </div>
-            
-            {/* Associated Staff Section */}
-            {!hideAssociatedStaff && (
-                <div>
-                <h4 className="font-semibold">Associated Staff</h4>
-                {order.associatedUsers && order.associatedUsers.length > 0 ? (
-                    <div className="mt-2 space-y-2 max-h-40 overflow-y-auto pr-2 -mr-2">
-                    {order.associatedUsers.map(user => (
-                        <div key={user.id} className="p-2 bg-slate-50 rounded-md border text-sm">
-                        <p className="font-semibold text-slate-900">{user.name} <span className="text-xs font-medium text-slate-500">({user.role})</span></p>
-                        <p className="text-slate-500">{user.email}</p>
+                {/* Top Section: Order Info and Attachments */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                     {/* Info Column */}
+                    <div className="lg:col-span-2 space-y-4">
+                        <div className="flex justify-between items-start">
+                            <h4 className="font-semibold text-lg">Order Information</h4>
+                            {order.shopifyOrderUrl && (
+                                <a href={order.shopifyOrderUrl} target="_blank" rel="noopener noreferrer">
+                                <Button variant="link" size="sm">View on Shopify</Button>
+                                </a>
+                            )}
                         </div>
-                    ))}
+                        <div className="text-sm grid grid-cols-2 gap-x-6 gap-y-3 text-slate-700 bg-white p-4 rounded border">
+                            <div className="col-span-2">
+                                <strong className="font-semibold text-slate-900 block mb-1">Products:</strong> 
+                                <ul className="list-disc list-inside bg-slate-50 p-2 rounded border border-slate-100">
+                                    {products.map((p, i) => (
+                                        <li key={i} className="py-0.5">{p}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                            
+                            {!hideCustomerInfo && (
+                                <>
+                                    <p><strong className="font-semibold text-slate-900">Customer:</strong> {order.customerName}</p>
+                                    {order.customerEmail && <p><strong className="font-semibold text-slate-900">Email:</strong> {order.customerEmail}</p>}
+                                    {order.customerPhone && <p><strong className="font-semibold text-slate-900">Phone:</strong> {order.customerPhone}</p>}
+                                </>
+                            )}
+                            
+                            <p><strong className="font-semibold text-slate-900">Status:</strong> {order.status}</p>
+                            {order.financialStatus && <p><strong className="font-semibold text-slate-900">Payment:</strong> {order.financialStatus}</p>}
+                            <p><strong className="font-semibold text-slate-900">Priority:</strong> {order.priority}</p>
+                            {order.shopifyOrderNumber && <p><strong className="font-semibold text-slate-900">Shopify ID:</strong> {order.shopifyOrderNumber}</p>}
+                            <p><strong className="font-semibold text-slate-900">Internal ID:</strong> {order.id}</p>
+                            
+                            {!hideDates && (
+                                <>
+                                    <p><strong className="font-semibold text-slate-900">Created:</strong> {new Date(order.createdAt).toLocaleString()}</p>
+                                    <p><strong className="font-semibold text-slate-900">Last Updated:</strong> {new Date(order.updatedAt).toLocaleString()}</p>
+                                </>
+                            )}
+
+                            {(order.textUnderDesign || order.shippingAddress) && (
+                                <div className="col-span-2 pt-2 border-t mt-1 space-y-2">
+                                     {order.textUnderDesign && (
+                                        <p>
+                                            <strong className="font-semibold text-slate-900 block">Text Under Design:</strong> 
+                                            <span className="text-slate-600">{order.textUnderDesign}</span>
+                                        </p>
+                                    )}
+                                    {order.shippingAddress && (
+                                        <p>
+                                            <strong className="font-semibold text-slate-900 block">Shipping Address:</strong> 
+                                            <span className="text-slate-600">{order.shippingAddress}</span>
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Associated Staff Section */}
+                        {!hideAssociatedStaff && (
+                            <div>
+                                <h4 className="font-semibold mb-2">Associated Staff</h4>
+                                {order.associatedUsers && order.associatedUsers.length > 0 ? (
+                                    <div className="flex flex-wrap gap-2">
+                                    {order.associatedUsers.map(user => (
+                                        <div key={user.id} className="p-2 bg-slate-50 rounded-md border text-xs">
+                                            <span className="font-semibold text-slate-900 block">{user.name}</span>
+                                            <span className="text-xs text-slate-500 block mb-1">{user.email}</span>
+                                            <span className="text-slate-500 font-medium">{user.role}</span>
+                                        </div>
+                                    ))}
+                                    </div>
+                                ) : (
+                                    <p className="text-sm text-slate-500">No staff associated.</p>
+                                )}
+                            </div>
+                        )}
                     </div>
-                ) : (
-                    <p className="text-sm text-slate-500 mt-2">No staff have been associated with this order yet.</p>
-                )}
+
+                    {/* Attachments Column */}
+                    <div>
+                        <h4 className="font-semibold mb-2">Attachments</h4>
+                        <div className="bg-slate-50 rounded border p-2 h-full max-h-[500px] overflow-y-auto">
+                            {order.attachments.length > 0 ? (
+                                order.attachments.map(att => (
+                                    <AttachmentItem 
+                                        key={att.id} 
+                                        attachment={att} 
+                                        onDelete={handleDeleteClick}
+                                        canDelete={canDeleteAttachment(att)}
+                                    />
+                                ))
+                            ) : (
+                                <p className="text-sm text-slate-500 text-center mt-10">No attachments found.</p>
+                            )}
+                        </div>
+                    </div>
                 </div>
-            )}
 
-
-            {/* Attachments Section */}
-            <div>
-                <h4 className="font-semibold">Attachments</h4>
-                {order.attachments.length > 0 ? (
-                <div className="mt-2 max-h-60 overflow-y-auto pr-2 -mr-2">
-                    {order.attachments.map(att => (
-                        <AttachmentItem 
-                            key={att.id} 
-                            attachment={att} 
-                            onDelete={handleDeleteClick}
-                            canDelete={canDeleteAttachment(att)}
+                {/* Bottom Section: Notes in 3 Columns */}
+                <div>
+                    <h4 className="font-semibold mb-3">Notes & History</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t pt-4">
+                        <NoteColumn 
+                            title="Internal / Team" 
+                            notes={teamNotes as Note[]} 
+                            bgColor="bg-slate-100" 
+                            canEditRole={canEditTeamNotes} 
+                            orderId={order.id} 
                         />
-                    ))}
+                        <NoteColumn 
+                            title={assignedDigitizer ? `${assignedDigitizer.name}` : "Digitizer"} 
+                            notes={digitizerNotes as Note[]} 
+                            bgColor="bg-orange-50" 
+                            canEditRole={canEditTeamNotes} 
+                            orderId={order.id} 
+                        />
+                        <NoteColumn 
+                            title={assignedVendor ? `${assignedVendor.name}` : "Vendor"} 
+                            notes={vendorNotes as Note[]} 
+                            bgColor="bg-purple-50" 
+                            canEditRole={canEditTeamNotes} 
+                            orderId={order.id} 
+                        />
+                    </div>
                 </div>
-                ) : (
-                <p className="text-sm text-slate-500 mt-2">No attachments found.</p>
-                )}
             </div>
-            </div>
-
-            {/* Right Column */}
-            <div className="md:col-span-2">
-            <h4 className="font-semibold">Notes / History</h4>
-            {order.notes.length > 0 ? (
-                <div className="mt-2 text-sm text-slate-600 bg-slate-50 p-3 rounded-md max-h-[30rem] overflow-y-auto">
-                {order.notes.map((note, index) => (
-                    <p key={index} className="border-b border-slate-200 last:border-b-0 py-2">{note}</p>
-                ))}
-                </div>
-            ) : (
-                <p className="text-sm text-slate-500 mt-2">No notes recorded.</p>
-            )}
-            </div>
-        </div>
         </Modal>
 
         <Modal 

@@ -1,6 +1,6 @@
 
 import express from 'express';
-import { login, getAllUsers, addUser, updateUser, deleteUser, seedUsers, verifyToken } from '../controllers/authController.js';
+import { login, getAllUsers, addUser, updateUser, deleteUser, verifyToken } from '../controllers/authController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
@@ -12,7 +12,7 @@ router.post('/users', protect, addUser);
 router.put('/users/:id', protect, updateUser);
 router.delete('/users/:id', protect, deleteUser);
 
-// A utility route to seed initial user data (optional)
-router.post('/seed-users', seedUsers);
+// Seed route disabled for safety
+// router.post('/seed-users', seedUsers);
 
 export default router;
