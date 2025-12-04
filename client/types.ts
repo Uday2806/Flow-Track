@@ -27,6 +27,7 @@ export interface Attachment {
   url: string;
   uploadedBy: Role;
   timestamp: string;
+  fromShopify?: boolean;
 }
 
 export interface AssociatedUser {

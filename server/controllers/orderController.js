@@ -72,6 +72,7 @@ export const syncShopifyOrders = async (req, res) => {
             url: url,
             uploadedBy: 'Sales', // Defaulting to Sales for Shopify sync
             timestamp: timestamp,
+            fromShopify: true
           });
           foundUrls.add(url);
         }
@@ -290,6 +291,7 @@ export const updateOrderStatus = async (req, res) => {
                         url: uploadResult.secure_url,
                         uploadedBy: uploadedBy, // Sent from client FormData
                         timestamp: new Date().toISOString(),
+                        fromShopify: false
                     };
                     order.attachments.push(newAttachment);
                 }
@@ -346,6 +348,27 @@ export const addOrderNote = async (req, res) => {
         res.status(200).json(updatedOrder);
     } catch (error) {
         res.status(500).json({ message: "Error adding note to order", error: error.message });
+    }
+};
+
+export const deleteOrderAttachment = async (req, res) => {
+    try {
+        const { id, attachmentId } = req.params;
+        const order = await Order.findOne({ id });
+        if (!order) return res.status(404).json({ message: "Order not found" });
+
+        const attachment = order.attachments.find(a => a.id === attachmentId);
+        if (!attachment) return res.status(404).json({ message: "Attachment not found" });
+
+        if (attachment.fromShopify) {
+            return res.status(403).json({ message: "Cannot delete attachments fetched from Shopify." });
+        }
+
+        order.attachments = order.attachments.filter(a => a.id !== attachmentId);
+        await order.save();
+        res.status(200).json(order);
+    } catch (error) {
+        res.status(500).json({ message: "Error deleting attachment", error: error.message });
     }
 };
 

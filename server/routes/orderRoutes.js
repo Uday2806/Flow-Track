@@ -6,7 +6,8 @@ import {
     syncShopifyOrders, 
     updateOrderStatus, 
     addOrderNote,
-    seedOrders
+    seedOrders,
+    deleteOrderAttachment
 } from '../controllers/orderController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
@@ -23,6 +24,7 @@ router.post('/shopify-sync', protect, syncShopifyOrders);
 // This route now accepts multiple file uploads (up to 5) along with status data
 router.put('/:id/status', protect, upload.array('attachmentFiles', 5), updateOrderStatus);
 router.post('/:id/note', protect, addOrderNote);
+router.delete('/:id/attachments/:attachmentId', protect, deleteOrderAttachment);
 
 // A utility route to seed initial order data (optional)
 router.post('/seed-orders', seedOrders);

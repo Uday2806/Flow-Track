@@ -7,6 +7,7 @@ const attachmentSchema = new mongoose.Schema({
   url: String,
   uploadedBy: String, 
   timestamp: { type: Date, default: Date.now },
+  fromShopify: { type: Boolean, default: false },
 }, { _id: false });
 
 const associatedUserSchema = new mongoose.Schema({
