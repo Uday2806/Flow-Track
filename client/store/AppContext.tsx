@@ -13,7 +13,7 @@ interface AppState {
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
   updateOrderStatus: (orderId: string, status: OrderStatus, note?: string, updates?: { digitizerId?: string; vendorId?: string; priority?: Priority; digitizerStatus?: string; vendorStatus?: string; }, attachmentFiles?: File[] | null) => Promise<void>;
-  addOrderNote: (orderId: string, note: string) => Promise<void>;
+  addOrderNote: (orderId: string, note: string, targetRole?: string) => Promise<void>;
   editOrderNote: (orderId: string, noteId: string, content: string) => Promise<void>;
   deleteAttachment: (orderId: string, attachmentId: string) => Promise<void>;
   addUser: (user: Omit<User, 'id'>) => Promise<void>;
@@ -265,12 +265,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }), `Order updated successfully.`);
   };
 
-  const addOrderNote = async (orderId: string, note: string) => {
+  const addOrderNote = async (orderId: string, note: string, targetRole?: string) => {
     await handleApiCall(() => fetch(`${API_URL}/orders/${orderId}/note`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify({ note }),
-    }), `Remark added to order ${orderId}.`);
+        body: JSON.stringify({ note, targetRole }),
+    }), `Note added to order ${orderId}.`);
   };
 
   const editOrderNote = async (orderId: string, noteId: string, content: string) => {

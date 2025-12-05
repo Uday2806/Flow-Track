@@ -278,6 +278,7 @@ export const updateOrderStatus = async (req, res) => {
         };
 
         // Only enforce transition rules if status is actually changing.
+        // If status is NOT changing (e.g. sub-status update or reassign), we skip this block.
         if (currentStatus !== newStatus) {
             const allowedPreviousStatuses = transitions[newStatus];
             if (allowedPreviousStatuses) {
@@ -441,7 +442,7 @@ export const updateOrderStatus = async (req, res) => {
 export const addOrderNote = async (req, res) => {
     try {
         const { id } = req.params;
-        const { note } = req.body;
+        const { note, targetRole } = req.body;
         const user = req.user;
 
         if (!note) {
@@ -453,13 +454,16 @@ export const addOrderNote = async (req, res) => {
             return res.status(404).json({ message: "Order not found" });
         }
 
-        // Standard add note defaults to internal team note unless specified otherwise
+        // Use provided targetRole (e.g. 'Digitizer') or default to 'Team'
+        // This allows Team members to place notes in the 'Digitizer' or 'Vendor' columns explicitly
+        const roleContext = targetRole || 'Team';
+
         order.notes.push({
             id: `note-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
             content: note,
             authorName: user.name,
             authorRole: user.role,
-            targetRole: 'Team',
+            targetRole: roleContext,
             timestamp: new Date()
         });
         
@@ -490,11 +494,6 @@ export const updateOrderNote = async (req, res) => {
 
         if (!content) return res.status(400).json({ message: "Content is required" });
 
-        // Only Team and Admin can edit notes
-        if (user.role !== 'Team' && user.role !== 'Admin') {
-             return res.status(403).json({ message: "Not authorized to edit notes" });
-        }
-
         const order = await Order.findOne({ id });
         if (!order) return res.status(404).json({ message: "Order not found" });
 
@@ -504,13 +503,24 @@ export const updateOrderNote = async (req, res) => {
 
         const note = order.notes[noteIndex];
         
-        // Allow Team to edit any note created by 'Team' role
-        if (note.authorRole !== 'Team' && user.role !== 'Admin') {
-             return res.status(403).json({ message: "You can only edit Team notes." });
+        // Permission check:
+        // 1. Team/Admin can edit any note created by 'Team' or 'Admin' (or system notes if needed, but usually human notes)
+        // 2. Any user can edit their OWN note.
+        const isAuthor = note.authorRole === user.role && note.authorName === user.name;
+        const isTeamOrAdmin = user.role === 'Team' || user.role === 'Admin';
+        const isNoteByTeam = note.authorRole === 'Team';
+
+        // Team can edit Team notes. Author can edit own notes.
+        const canEdit = isAuthor || (isTeamOrAdmin && isNoteByTeam);
+
+        if (!canEdit) {
+             return res.status(403).json({ message: "You are not authorized to edit this note." });
         }
 
         // Update content
         order.notes[noteIndex].content = content;
+        // Mark as edited
+        order.notes[noteIndex].isEdited = true;
         
         order.markModified('notes');
         await order.save();

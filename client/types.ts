@@ -37,6 +37,7 @@ export interface Note {
   authorRole: string;
   targetRole?: string; // To designate which "column" or context this note belongs to
   timestamp: string;
+  isEdited?: boolean;
 }
 
 export interface AssociatedUser {

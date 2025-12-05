@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Order, Attachment, Role, Note } from '../../types';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
-import { DownloadIcon, FileIcon, TrashIcon, EditIcon, FileUpIcon } from '../icons/Icons';
+import { DownloadIcon, FileIcon, TrashIcon, EditIcon, FileUpIcon, PlusIcon } from '../icons/Icons';
 import { useAppContext } from '../../store/AppContext';
 
 interface OrderDetailsModalProps {
@@ -151,10 +151,11 @@ const NoteItem: React.FC<{ note: Note; canEdit: boolean; orderId: string }> = ({
     return (
         <div className="mb-4 flex flex-col space-y-1 group">
             <div className="flex justify-between items-baseline px-1">
-                <span className="text-xs font-bold text-slate-700">
+                <span className="text-xs font-bold text-slate-700 flex items-center">
                     {note.authorName} 
                     {/* Only show role if it's Admin or System to differentiate from generic Team/Digitizer */}
                     {['Admin', 'System'].includes(note.authorRole) && <span className="font-normal text-slate-500 ml-1">({note.authorRole})</span>}
+                    {note.isEdited && <span className="ml-2 text-[10px] font-normal text-slate-400 italic">(edited)</span>}
                 </span>
                 {canEdit && (
                     <button onClick={() => setIsEditing(true)} className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-slate-600">
@@ -171,27 +172,79 @@ const NoteItem: React.FC<{ note: Note; canEdit: boolean; orderId: string }> = ({
     );
 };
 
-const NoteColumn: React.FC<{ title: string; notes: Note[]; bgColor: string; canEditRole: boolean; orderId: string }> = ({ title, notes, bgColor, canEditRole, orderId }) => (
-    <div className={`rounded-md p-3 h-full flex flex-col ${bgColor}`}>
-        <h5 className="font-semibold text-slate-700 mb-3 text-center border-b pb-2 sticky top-0">{title}</h5>
-        <div className="flex-grow overflow-y-auto max-h-[300px] pr-1 scrollbar-thin scrollbar-thumb-slate-300">
-            {notes.length > 0 ? (
-                notes.map((note, index) => (
-                    // Handle legacy string notes if any exist
-                    typeof note === 'string' ? (
-                        <div key={index} className="mb-2 p-2 bg-white border rounded text-sm text-slate-600">
-                            {note}
+const NoteColumn: React.FC<{ 
+    title: string; 
+    notes: Note[]; 
+    bgColor: string; 
+    currentUserRole?: Role; 
+    orderId: string;
+    targetRoleKey: string; // The key to use when adding a note to this column (e.g. 'Digitizer', 'Vendor', 'Team')
+}> = ({ title, notes, bgColor, currentUserRole, orderId, targetRoleKey }) => {
+    const { addOrderNote, isLoading, currentUser } = useAppContext();
+    const [isAdding, setIsAdding] = useState(false);
+    const [newNoteContent, setNewNoteContent] = useState('');
+
+    const handleAddNote = async () => {
+        if (!newNoteContent.trim()) return;
+        await addOrderNote(orderId, newNoteContent, targetRoleKey);
+        setIsAdding(false);
+        setNewNoteContent('');
+    };
+
+    return (
+        <div className={`rounded-md p-3 h-full flex flex-col ${bgColor}`}>
+            <div className="flex justify-between items-center mb-3 border-b pb-2 sticky top-0">
+                <h5 className="font-semibold text-slate-700">{title}</h5>
+                <button 
+                    onClick={() => setIsAdding(!isAdding)} 
+                    className="p-1 rounded-full hover:bg-slate-200 text-slate-500 transition-colors"
+                    title="Add Note"
+                >
+                    <PlusIcon className="w-4 h-4" />
+                </button>
+            </div>
+            
+            <div className="flex-grow overflow-y-auto max-h-[300px] pr-1 scrollbar-thin scrollbar-thumb-slate-300">
+                {isAdding && (
+                    <div className="mb-3 p-2 bg-white border rounded shadow-sm">
+                        <textarea 
+                            className="w-full text-sm border p-2 rounded mb-2 whitespace-pre-wrap focus:outline-none focus:ring-1 focus:ring-slate-400" 
+                            rows={3} 
+                            placeholder="Type note here..."
+                            value={newNoteContent} 
+                            onChange={e => setNewNoteContent(e.target.value)}
+                            autoFocus
+                        />
+                        <div className="flex justify-end gap-2">
+                            <Button size="sm" variant="outline" onClick={() => setIsAdding(false)} className="h-7 text-xs px-2">Cancel</Button>
+                            <Button size="sm" onClick={handleAddNote} disabled={isLoading || !newNoteContent.trim()} className="h-7 text-xs px-2">Save</Button>
                         </div>
-                    ) : (
-                        <NoteItem key={note.id || index} note={note} canEdit={canEditRole && (note.authorRole === 'Team' || note.authorRole === 'Admin')} orderId={orderId} />
-                    )
-                ))
-            ) : (
-                <p className="text-sm text-slate-400 text-center italic mt-4">No notes.</p>
-            )}
+                    </div>
+                )}
+
+                {notes.length > 0 ? (
+                    notes.map((note, index) => {
+                        const canEdit = 
+                            // 1. Team/Admin can edit 'Team' notes
+                            ((currentUserRole === Role.TEAM || currentUserRole === Role.ADMIN) && note.authorRole === Role.TEAM) ||
+                            // 2. Anyone can edit their OWN notes
+                            (currentUser?.name === note.authorName && currentUser?.role === note.authorRole);
+
+                        return typeof note === 'string' ? (
+                            <div key={index} className="mb-2 p-2 bg-white border rounded text-sm text-slate-600">
+                                {note}
+                            </div>
+                        ) : (
+                            <NoteItem key={note.id || index} note={note} canEdit={canEdit} orderId={orderId} />
+                        )
+                    })
+                ) : (
+                    <p className="text-sm text-slate-400 text-center italic mt-4">No notes.</p>
+                )}
+            </div>
         </div>
-    </div>
-);
+    );
+};
 
 
 const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order: initialOrder, onClose, hideCustomerInfo, hideDates, hideAssociatedStaff }) => {
@@ -288,7 +341,16 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order: initialOrd
   const digitizerNotes = order.notes.filter(n => getNoteCategory(n) === 'Digitizer');
   const vendorNotes = order.notes.filter(n => getNoteCategory(n) === 'Vendor');
 
-  const canEditTeamNotes = currentUser?.role === Role.TEAM || currentUser?.role === Role.ADMIN;
+  // Logic for visibility
+  const isDigitizer = currentUser?.role === Role.DIGITIZER;
+  const isVendor = currentUser?.role === Role.VENDOR;
+
+  const showTeamCol = !isDigitizer && !isVendor;
+  const showDigitizerCol = !isVendor; // Digitizers see their col, others (except Vendor) see it.
+  const showVendorCol = !isDigitizer; // Vendors see their col, others (except Digitizer) see it.
+
+  // Determine grid columns: restricted roles see 1 col, Team sees 3.
+  const gridClass = (isDigitizer || isVendor) ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-3';
 
   return (
     <>
@@ -403,31 +465,40 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order: initialOrd
                     </div>
                 </div>
 
-                {/* Bottom Section: Notes in 3 Columns */}
+                {/* Bottom Section: Notes in Columns */}
                 <div>
                     <h4 className="font-semibold mb-3">Notes & History</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t pt-4">
-                        <NoteColumn 
-                            title="Internal / Team" 
-                            notes={teamNotes as Note[]} 
-                            bgColor="bg-slate-100" 
-                            canEditRole={canEditTeamNotes} 
-                            orderId={order.id} 
-                        />
-                        <NoteColumn 
-                            title={assignedDigitizer ? `${assignedDigitizer.name}` : "Digitizer"} 
-                            notes={digitizerNotes as Note[]} 
-                            bgColor="bg-orange-50" 
-                            canEditRole={canEditTeamNotes} 
-                            orderId={order.id} 
-                        />
-                        <NoteColumn 
-                            title={assignedVendor ? `${assignedVendor.name}` : "Vendor"} 
-                            notes={vendorNotes as Note[]} 
-                            bgColor="bg-purple-50" 
-                            canEditRole={canEditTeamNotes} 
-                            orderId={order.id} 
-                        />
+                    <div className={`grid ${gridClass} gap-4 border-t pt-4`}>
+                        {showTeamCol && (
+                            <NoteColumn 
+                                title="Internal / Team" 
+                                notes={teamNotes as Note[]} 
+                                bgColor="bg-slate-100" 
+                                currentUserRole={currentUser?.role}
+                                orderId={order.id} 
+                                targetRoleKey="Team"
+                            />
+                        )}
+                        {showDigitizerCol && (
+                            <NoteColumn 
+                                title={assignedDigitizer ? `${assignedDigitizer.name}` : "Digitizer"} 
+                                notes={digitizerNotes as Note[]} 
+                                bgColor="bg-orange-50" 
+                                currentUserRole={currentUser?.role}
+                                orderId={order.id} 
+                                targetRoleKey="Digitizer"
+                            />
+                        )}
+                        {showVendorCol && (
+                            <NoteColumn 
+                                title={assignedVendor ? `${assignedVendor.name}` : "Vendor"} 
+                                notes={vendorNotes as Note[]} 
+                                bgColor="bg-purple-50" 
+                                currentUserRole={currentUser?.role}
+                                orderId={order.id} 
+                                targetRoleKey="Vendor"
+                            />
+                        )}
                     </div>
                 </div>
             </div>
