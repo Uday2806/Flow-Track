@@ -126,7 +126,7 @@ const OrdersDashboard: React.FC<{
 };
 
 export const IncomingQueueView: React.FC<{ onViewOrderDetails: (order: Order) => void }> = ({ onViewOrderDetails }) => {
-    const { orders, users, updateOrderStatus, isLoading, currentUser } = useAppContext();
+    const { orders, users, updateOrderStatus, isLoading, currentUser, addToast } = useAppContext();
     const [rejectModalOpen, setRejectModalOpen] = useState(false);
     const [rejectionNote, setRejectionNote] = useState('');
     const [rejectionFiles, setRejectionFiles] = useState<File[]>([]);
@@ -153,6 +153,16 @@ export const IncomingQueueView: React.FC<{ onViewOrderDetails: (order: Order) =>
     };
 
     const handleReject = async () => {
+        if (rejectionFiles.length > 10) {
+            addToast({ type: 'error', message: 'You cannot upload more than 10 files.' });
+            return;
+        }
+        const oversize = rejectionFiles.find(f => f.size > 5 * 1024 * 1024);
+        if (oversize) {
+            addToast({ type: 'error', message: 'One or more files exceed the 5MB limit.' });
+            return;
+        }
+
         if (localSelectedOrder && rejectionNote) {
             await updateOrderStatus(localSelectedOrder.id, OrderStatus.AT_DIGITIZER, `Team rejected: ${rejectionNote}`, {}, rejectionFiles);
             setRejectModalOpen(false);
@@ -173,6 +183,16 @@ export const IncomingQueueView: React.FC<{ onViewOrderDetails: (order: Order) =>
 
     const handleConfirmSendToDigitizer = async () => {
         if (orderToSend && selectedDigitizerId && filesToAttach.length > 0) {
+             if (filesToAttach.length > 10) {
+                addToast({ type: 'error', message: 'You cannot upload more than 10 files.' });
+                return;
+            }
+            const oversize = filesToAttach.find(f => f.size > 5 * 1024 * 1024);
+            if (oversize) {
+                addToast({ type: 'error', message: 'One or more files exceed the 5MB limit.' });
+                return;
+            }
+
             try {
                 const note = `Sent to digitizer.${digitizerNote ? ` Note: ${digitizerNote}` : ''}`;
                 await updateOrderStatus(orderToSend.id, OrderStatus.AT_DIGITIZER, note, { digitizerId: selectedDigitizerId, priority: priority }, filesToAttach);
@@ -247,7 +267,7 @@ export const IncomingQueueView: React.FC<{ onViewOrderDetails: (order: Order) =>
                                         <input id="rejection-file-upload" name="rejection-file-upload" type="file" multiple className="sr-only" onChange={e => setRejectionFiles(e.target.files ? Array.from(e.target.files) : [])} />
                                     </label>
                                 </div>
-                                <p className="text-xs text-slate-500">Select one or more files to attach</p>
+                                <p className="text-xs text-slate-500">Max 10 files, 5MB each.</p>
                             </div>
                         </div>
                          {rejectionFiles.length > 0 && (
@@ -255,7 +275,9 @@ export const IncomingQueueView: React.FC<{ onViewOrderDetails: (order: Order) =>
                                 <h4 className="font-medium text-slate-800">Selected files:</h4>
                                 <ul className="mt-1 list-disc list-inside bg-slate-50 p-2 rounded-md border max-h-28 overflow-y-auto">
                                     {rejectionFiles.map((file, index) => (
-                                        <li key={index} className="text-slate-600 truncate">{file.name}</li>
+                                        <li key={index} className="text-slate-600 truncate">
+                                            {file.name} {(file.size > 5 * 1024 * 1024) && <span className="text-red-500 font-bold">(Too Large)</span>}
+                                        </li>
                                     ))}
                                 </ul>
                             </div>
@@ -291,7 +313,7 @@ export const IncomingQueueView: React.FC<{ onViewOrderDetails: (order: Order) =>
                                         <input id="file-upload" name="file-upload" type="file" multiple className="sr-only" onChange={e => setFilesToAttach(e.target.files ? Array.from(e.target.files) : [])} />
                                     </label>
                                 </div>
-                                <p className="text-xs text-slate-500">Select one or more files to attach</p>
+                                <p className="text-xs text-slate-500">Max 10 files, 5MB each.</p>
                             </div>
                         </div>
                          {filesToAttach.length > 0 && (
@@ -299,7 +321,9 @@ export const IncomingQueueView: React.FC<{ onViewOrderDetails: (order: Order) =>
                                 <h4 className="font-medium text-slate-800">Selected files:</h4>
                                 <ul className="mt-1 list-disc list-inside bg-slate-50 p-2 rounded-md border max-h-28 overflow-y-auto">
                                     {filesToAttach.map((file, index) => (
-                                        <li key={index} className="text-slate-600 truncate">{file.name}</li>
+                                        <li key={index} className="text-slate-600 truncate">
+                                            {file.name} {(file.size > 5 * 1024 * 1024) && <span className="text-red-500 font-bold">(Too Large)</span>}
+                                        </li>
                                     ))}
                                 </ul>
                             </div>

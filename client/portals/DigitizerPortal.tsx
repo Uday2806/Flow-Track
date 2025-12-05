@@ -125,7 +125,7 @@ const StatCard: React.FC<{ title: string; value: string | number; icon: React.El
 );
 
 const DigitizerPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
-  const { orders, currentUser, updateOrderStatus, isLoading } = useAppContext();
+  const { orders, currentUser, updateOrderStatus, isLoading, addToast } = useAppContext();
   
   // Modal and data state
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -267,6 +267,17 @@ const DigitizerPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
 
   const handleConfirmUpload = async () => {
     if (orderToUploadFor && filesToUpload.length > 0) {
+      // Validate files before sending
+      if (filesToUpload.length > 10) {
+          addToast({ type: 'error', message: 'You cannot upload more than 10 files at once.' });
+          return;
+      }
+      const oversizeFile = filesToUpload.find(f => f.size > 5 * 1024 * 1024);
+      if (oversizeFile) {
+          addToast({ type: 'error', message: `File ${oversizeFile.name} exceeds the 5MB limit.` });
+          return;
+      }
+
       try {
         const note = `Digitizer: Design complete.${optionalNote ? ` Note: ${optionalNote}` : ''}`;
         await updateOrderStatus(orderToUploadFor.id, OrderStatus.TEAM_REVIEW, note, {}, filesToUpload);
@@ -311,6 +322,7 @@ const DigitizerPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
       {mainTab === 'queue' && (
         <>
           <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
+             {/* ... Filters and Queue Tabs ... */}
             <div className="border-b border-slate-200">
               <button
                 onClick={() => setQueueTab('new')}
@@ -476,7 +488,7 @@ const DigitizerPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
                                 <input id="file-upload" name="file-upload" type="file" multiple className="sr-only" onChange={e => setFilesToUpload(e.target.files ? Array.from(e.target.files) : [])} />
                             </label>
                         </div>
-                        <p className="text-xs text-slate-500">Select one or more files</p>
+                        <p className="text-xs text-slate-500">Select one or more files. Max 10 files, 5MB each.</p>
                     </div>
                 </div>
                  {filesToUpload.length > 0 && (
@@ -484,7 +496,9 @@ const DigitizerPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
                         <h4 className="font-medium text-slate-800">Selected files:</h4>
                         <ul className="mt-1 list-disc list-inside bg-slate-50 p-2 rounded-md border max-h-28 overflow-y-auto">
                             {filesToUpload.map((file, index) => (
-                                <li key={index} className="text-slate-600 truncate">{file.name}</li>
+                                <li key={index} className="text-slate-600 truncate">
+                                    {file.name} {(file.size > 5 * 1024 * 1024) && <span className="text-red-500 font-bold">(Too Large)</span>}
+                                </li>
                             ))}
                         </ul>
                     </div>

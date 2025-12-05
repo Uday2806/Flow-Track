@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Order, Attachment, Role, Note } from '../../types';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
-import { DownloadIcon, FileIcon, TrashIcon, EditIcon } from '../icons/Icons';
+import { DownloadIcon, FileIcon, TrashIcon, EditIcon, FileUpIcon } from '../icons/Icons';
 import { useAppContext } from '../../store/AppContext';
 
 interface OrderDetailsModalProps {
@@ -195,27 +195,32 @@ const NoteColumn: React.FC<{ title: string; notes: Note[]; bgColor: string; canE
 
 
 const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order: initialOrder, onClose, hideCustomerInfo, hideDates, hideAssociatedStaff }) => {
-  // Added 'users' to destructuring
-  const { orders, users, currentUser, deleteAttachment, isLoading } = useAppContext();
+  const { orders, users, currentUser, deleteAttachment, updateOrderStatus, isLoading, addToast } = useAppContext();
+  
+  // Deletion Modal State
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [attachmentToDelete, setAttachmentToDelete] = useState<Attachment | null>(null);
 
+  // Upload Modal State
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [filesToUpload, setFilesToUpload] = useState<File[]>([]);
+
   // Use the latest order data from context if available, otherwise fallback to initial props
-  // This ensures the modal updates immediately when attachments are deleted or status changes.
   const order = orders.find(o => o.id === initialOrder?.id) || initialOrder;
 
   if (!order) return null;
   
   const products = order.productName ? order.productName.split(', ') : [];
   
-  // Find associated user objects for the assigned digitizer/vendor
   const assignedDigitizer = users.find(u => u.id === order.digitizerId);
   const assignedVendor = users.find(u => u.id === order.vendorId);
 
+  // Update permission: Team/Admin can delete any non-shopify. Digitizer/Vendor can delete their own.
   const canDeleteAttachment = (attachment: Attachment) => {
-      // Team and Admin can delete attachments, but ONLY if they are not from Shopify.
+      if (attachment.fromShopify) return false;
       const isPrivilegedUser = currentUser?.role === Role.TEAM || currentUser?.role === Role.ADMIN;
-      return isPrivilegedUser && !attachment.fromShopify;
+      const isOwner = currentUser?.role === attachment.uploadedBy;
+      return isPrivilegedUser || isOwner;
   };
 
   const handleDeleteClick = (attachment: Attachment) => {
@@ -231,7 +236,36 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order: initialOrd
       }
   };
 
-  // Helper to categorize notes
+  const handleOpenUpload = () => {
+      setFilesToUpload([]);
+      setIsUploadModalOpen(true);
+  };
+
+  const handleConfirmUpload = async () => {
+      if (!filesToUpload.length) return;
+      
+      // Client-side validation
+      if (filesToUpload.length > 10) {
+          addToast({ type: 'error', message: 'You cannot upload more than 10 files at once.' });
+          return;
+      }
+      const oversizeFile = filesToUpload.find(f => f.size > 5 * 1024 * 1024);
+      if (oversizeFile) {
+          addToast({ type: 'error', message: `File ${oversizeFile.name} exceeds the 5MB limit.` });
+          return;
+      }
+
+      try {
+          // Pass null for note to not add an empty note row
+          await updateOrderStatus(order.id, order.status, undefined, {}, filesToUpload);
+          setIsUploadModalOpen(false);
+          setFilesToUpload([]);
+      } catch (error) {
+          console.error("Failed to add attachments", error);
+      }
+  };
+
+  // Helper to categorize notes (same as before)
   const getNoteCategory = (note: Note | string): 'Team' | 'Digitizer' | 'Vendor' => {
       if (typeof note === 'string') {
           const lower = note.toLowerCase();
@@ -239,21 +273,14 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order: initialOrd
           if (lower.includes('vendor') || lower.includes('approved')) return 'Vendor';
           return 'Team';
       }
-      
-      // If explicit target is set (new functionality)
       if (note.targetRole === 'Digitizer') return 'Digitizer';
       if (note.targetRole === 'Vendor') return 'Vendor';
       if (note.targetRole === 'Team') return 'Team';
-      
-      // Fallback for notes without targetRole
       if (note.authorRole === 'Digitizer') return 'Digitizer';
       if (note.authorRole === 'Vendor') return 'Vendor';
-      
-      // Fallback text matching for older structured notes
       const content = note.content.toLowerCase();
       if (content.includes('sent to digitizer') || content.includes('team rejected')) return 'Digitizer';
       if (content.includes('sent to vendor')) return 'Vendor';
-      
       return 'Team';
   };
 
@@ -272,6 +299,7 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order: initialOrd
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                      {/* Info Column */}
                     <div className="lg:col-span-2 space-y-4">
+                         {/* ... Info content ... */}
                         <div className="flex justify-between items-start">
                             <h4 className="font-semibold text-lg">Order Information</h4>
                             {order.shopifyOrderUrl && (
@@ -352,7 +380,12 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order: initialOrd
 
                     {/* Attachments Column */}
                     <div>
-                        <h4 className="font-semibold mb-2">Attachments</h4>
+                        <div className="flex justify-between items-center mb-2">
+                            <h4 className="font-semibold">Attachments</h4>
+                            <Button size="sm" variant="outline" onClick={handleOpenUpload} className="h-7 text-xs">
+                                <FileUpIcon className="w-3 h-3 mr-1" /> Add Files
+                            </Button>
+                        </div>
                         <div className="bg-slate-50 rounded border p-2 h-full max-h-[500px] overflow-y-auto">
                             {order.attachments.length > 0 ? (
                                 order.attachments.map(att => (
@@ -415,6 +448,48 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order: initialOrd
         >
             <p>Are you sure you want to delete the attachment <strong>{attachmentToDelete?.name}</strong>?</p>
             <p className="text-sm text-slate-600 mt-2">This action cannot be undone.</p>
+        </Modal>
+
+        <Modal 
+            isOpen={isUploadModalOpen} 
+            onClose={() => { setIsUploadModalOpen(false); setFilesToUpload([]); }}
+            title="Add Attachments"
+            footer={
+                <div className="flex justify-end space-x-2">
+                    <Button variant="outline" onClick={() => { setIsUploadModalOpen(false); setFilesToUpload([]); }}>Cancel</Button>
+                    <Button onClick={handleConfirmUpload} disabled={filesToUpload.length === 0 || isLoading}>
+                        {isLoading ? 'Uploading...' : 'Upload'}
+                    </Button>
+                </div>
+            }
+        >
+            <div className="space-y-4">
+                <p className="text-sm text-slate-600">Upload additional files to this order without changing its status.</p>
+                <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-slate-300 border-dashed rounded-md">
+                    <div className="space-y-1 text-center">
+                        <FileUpIcon className="mx-auto h-12 w-12 text-slate-400" />
+                        <div className="flex text-sm text-slate-600">
+                            <label htmlFor="modal-file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-slate-800 hover:text-slate-600 focus-within:outline-none">
+                                <span>Upload files</span>
+                                <input id="modal-file-upload" name="file-upload" type="file" multiple className="sr-only" onChange={e => setFilesToUpload(e.target.files ? Array.from(e.target.files) : [])} />
+                            </label>
+                        </div>
+                        <p className="text-xs text-slate-500">Max 10 files, 5MB each</p>
+                    </div>
+                </div>
+                {filesToUpload.length > 0 && (
+                    <div className="mt-3 text-sm">
+                        <h4 className="font-medium text-slate-800">Selected files:</h4>
+                        <ul className="mt-1 list-disc list-inside bg-slate-50 p-2 rounded-md border max-h-28 overflow-y-auto">
+                            {filesToUpload.map((file, index) => (
+                                <li key={index} className="text-slate-600 truncate">
+                                    {file.name} {(file.size > 5 * 1024 * 1024) && <span className="text-red-500 font-bold">(Too Large)</span>}
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+            </div>
         </Modal>
     </>
   );

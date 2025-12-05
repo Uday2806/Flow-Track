@@ -123,7 +123,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         body: JSON.stringify({ email, password }),
       });
       
-      const data = await response.json();
+      let data;
+      try {
+          data = await response.json();
+      } catch (e) {
+          console.error("Login failed (Server Error):", response.statusText);
+          addToast({ type: 'error', message: 'Internal Server Error.' });
+          return false;
+      }
 
       if (!response.ok) {
         addToast({ type: 'error', message: data.message || 'Invalid email or password.' });
@@ -164,9 +171,29 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setIsLoading(true);
         const response = await apiCall();
         if (!response.ok) {
-            const errorData = await response.json();
-            if (response.status === 401) logout();
-            throw new Error(errorData.message || 'API request failed');
+            let errorData;
+            try {
+                errorData = await response.json();
+            } catch (e) {
+                // If JSON parsing fails, it's likely a 500 error or HTML response
+                console.error("Non-JSON API Error Response:", response.status, response.statusText);
+                throw new Error("Internal Server Error");
+            }
+
+            if (response.status === 401) {
+                logout();
+                throw new Error("Session expired. Please log in again.");
+            }
+            
+            // Log the actual server error to console for debugging
+            console.error("API Error Detail:", errorData);
+
+            // Display generic error for 500 status, specific for others if safe
+            if (response.status >= 500) {
+                throw new Error("Internal Server Error");
+            } else {
+                throw new Error(errorData.message || 'API request failed');
+            }
         }
         await fetchData(true);
         addToast({ type: 'success', message: successMessage });
@@ -191,7 +218,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             body: formData,
         });
         if (!response.ok) {
-            const errorData = await response.json();
+            let errorData;
+            try {
+                errorData = await response.json();
+            } catch (e) {
+                console.error("Upload Error (Non-JSON):", response.statusText);
+                throw new Error("Internal Server Error");
+            }
             throw new Error(errorData.message || 'File upload failed');
         }
         const data = await response.json();
@@ -229,7 +262,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         method: 'PUT',
         headers: getAuthHeaders(), // No 'Content-Type', browser sets it for FormData
         body: formData,
-    }), `Order ${orderId} updated successfully.`);
+    }), `Order updated successfully.`);
   };
 
   const addOrderNote = async (orderId: string, note: string) => {
@@ -286,7 +319,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
           body: JSON.stringify({ limit })
       });
-      const result = await response.json();
+      
+      let result;
+      try {
+          result = await response.json();
+      } catch (e) {
+          console.error("Shopify Sync Server Error (Non-JSON):", response.statusText);
+          if (!isAutoSync) addToast({ type: 'error', message: 'Internal Server Error during sync.' });
+          return { message: 'Internal Error', importedCount: 0 };
+      }
+
       if (!response.ok) throw new Error(result.message || 'Shopify sync failed');
       
       await fetchData(true); // Refresh data

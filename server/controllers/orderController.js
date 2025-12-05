@@ -265,7 +265,8 @@ export const updateOrderStatus = async (req, res) => {
         const isReassigningDigitizer = currentStatus === 'At Digitizer' && newStatus === 'At Digitizer' && digitizerId && digitizerId !== order.digitizerId;
         const isSubStatusChange = (digitizerStatus && digitizerStatus !== order.digitizerStatus) || (vendorStatus && vendorStatus !== order.vendorStatus);
 
-        if (currentStatus === newStatus && !isReassigningDigitizer && !isSubStatusChange) {
+        if (currentStatus === newStatus && !isReassigningDigitizer && !isSubStatusChange && (!req.files || req.files.length === 0)) {
+            // Note: We added check for files. If files are being uploaded, we allow the request even if status doesn't change
             return res.status(409).json({ message: "This action cannot be completed because the order is already in this state. Please refresh the page." });
         }
 
@@ -277,7 +278,6 @@ export const updateOrderStatus = async (req, res) => {
         };
 
         // Only enforce transition rules if status is actually changing.
-        // If status is NOT changing (e.g. sub-status update or reassign), we skip this block.
         if (currentStatus !== newStatus) {
             const allowedPreviousStatuses = transitions[newStatus];
             if (allowedPreviousStatuses) {
@@ -313,7 +313,7 @@ export const updateOrderStatus = async (req, res) => {
                         id: `att-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
                         name: file.originalname,
                         url: uploadResult.secure_url,
-                        uploadedBy: uploadedBy, // Sent from client FormData
+                        uploadedBy: uploadedBy || user.role, // Use passed uploadedBy or default to user role
                         timestamp: new Date().toISOString(),
                         fromShopify: false
                     };
@@ -524,6 +524,8 @@ export const updateOrderNote = async (req, res) => {
 export const deleteOrderAttachment = async (req, res) => {
     try {
         const { id, attachmentId } = req.params;
+        const user = req.user;
+
         const order = await Order.findOne({ id });
         if (!order) return res.status(404).json({ message: "Order not found" });
 
@@ -532,6 +534,16 @@ export const deleteOrderAttachment = async (req, res) => {
 
         if (attachment.fromShopify) {
             return res.status(403).json({ message: "Cannot delete attachments fetched from Shopify." });
+        }
+        
+        // Permission check:
+        // 1. Team/Admin can delete any non-shopify attachment.
+        // 2. Digitizer/Vendor can delete attachments THEY uploaded.
+        const isPrivilegedUser = user.role === 'Team' || user.role === 'Admin';
+        const isOwner = attachment.uploadedBy === user.role; // uploadedBy stores Role string
+
+        if (!isPrivilegedUser && !isOwner) {
+            return res.status(403).json({ message: "You are not authorized to delete this attachment." });
         }
 
         order.attachments = order.attachments.filter(a => a.id !== attachmentId);
