@@ -59,6 +59,11 @@ export interface Order {
   digitizerId?: string;
   vendorId?: string;
   associatedUsers?: AssociatedUser[];
+  
+  // Sub-statuses for specific roles
+  digitizerStatus?: string; // 'Pending' | 'InProgress'
+  vendorStatus?: string;    // 'Pending' | 'InProgress'
+
   // Shopify Integration Fields
   shopifyOrderId?: string;
   shopifyOrderUrl?: string;

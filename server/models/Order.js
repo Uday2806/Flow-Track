@@ -35,6 +35,10 @@ const orderSchema = new mongoose.Schema({
     default: 'Medium'
   },
   
+  // Sub-statuses for specific roles to track their own progress
+  digitizerStatus: { type: String, default: 'Pending' }, // 'Pending', 'InProgress'
+  vendorStatus: { type: String, default: 'Pending' }, // 'Pending', 'InProgress'
+  
   // Shopify Integration Fields
   shopifyOrderId: { type: String, index: true }, // Indexed for fast lookups
   shopifyOrderUrl: String,

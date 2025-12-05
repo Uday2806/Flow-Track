@@ -40,6 +40,7 @@ const OrdersDashboard: React.FC<{
             const lowercasedTerm = searchTerm.toLowerCase().trim();
             filteredOrders = filteredOrders.filter(order =>
                 order.id.toLowerCase().includes(lowercasedTerm) ||
+                (order.shopifyOrderNumber && order.shopifyOrderNumber.toLowerCase().includes(lowercasedTerm)) ||
                 (order.customerName && order.customerName.toLowerCase().includes(lowercasedTerm)) ||
                 order.productName.toLowerCase().includes(lowercasedTerm)
             );
@@ -135,7 +136,7 @@ const DigitizerPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
 
   // UI state
   const [mainTab, setMainTab] = useState<'queue' | 'records'>('queue');
-  const [queueTab, setQueueTab] = useState<'new' | 'rejected'>('new');
+  const [queueTab, setQueueTab] = useState<'new' | 'in_progress' | 'rejected'>('new');
   const [searchTerm, setSearchTerm] = useState('');
   const [sortOrder, setSortOrder] = useState('newest');
   const [currentPage, setCurrentPage] = useState(1);
@@ -147,29 +148,46 @@ const DigitizerPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
   }, [queueTab, mainTab]);
 
   // Logic for Queue View
-  const { newOrders, rejectedOrders } = useMemo(() => {
-    if (!CURRENT_DIGITIZER_ID) return { newOrders: [], rejectedOrders: [] };
+  const { newOrders, inProgressOrders, rejectedOrders } = useMemo(() => {
+    if (!CURRENT_DIGITIZER_ID) return { newOrders: [], inProgressOrders: [], rejectedOrders: [] };
     const allDigitizerOrders = orders.filter(o => o.status === OrderStatus.AT_DIGITIZER && o.digitizerId === CURRENT_DIGITIZER_ID);
     const rejected: Order[] = [];
     const fresh: Order[] = [];
+    const inProgress: Order[] = [];
 
     for (const order of allDigitizerOrders) {
+        // If local status is InProgress, put it there regardless of rejection history
+        if (order.digitizerStatus === 'InProgress') {
+            inProgress.push(order);
+            continue;
+        }
+
+        // Check for rejection (legacy logic for now, could be improved with dedicated status)
+        let isRejected = false;
         if (order.notes.length > 0) {
             const lastNote = order.notes[order.notes.length - 1];
-            // Handle structured note object or legacy string
             const noteContent = typeof lastNote === 'string' ? lastNote : lastNote.content;
-            
             if (noteContent && noteContent.includes('Team rejected:')) {
-                rejected.push(order);
-                continue;
+                isRejected = true;
             }
         }
-        fresh.push(order);
+
+        if (isRejected) {
+            rejected.push(order);
+        } else {
+            fresh.push(order);
+        }
     }
-    return { newOrders: fresh, rejectedOrders: rejected };
+    return { newOrders: fresh, inProgressOrders: inProgress, rejectedOrders: rejected };
   }, [orders, CURRENT_DIGITIZER_ID]);
 
-  const ordersToShowInQueue = useMemo(() => (queueTab === 'new' ? newOrders : rejectedOrders), [queueTab, newOrders, rejectedOrders]);
+  const ordersToShowInQueue = useMemo(() => {
+      switch (queueTab) {
+          case 'in_progress': return inProgressOrders;
+          case 'rejected': return rejectedOrders;
+          case 'new': default: return newOrders;
+      }
+  }, [queueTab, newOrders, inProgressOrders, rejectedOrders]);
 
   const processedQueueOrders = useMemo(() => {
     let filteredOrders = [...ordersToShowInQueue];
@@ -178,6 +196,7 @@ const DigitizerPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
       const lowercasedTerm = searchTerm.toLowerCase().trim();
       filteredOrders = filteredOrders.filter(order =>
         order.id.toLowerCase().includes(lowercasedTerm) ||
+        (order.shopifyOrderNumber && order.shopifyOrderNumber.toLowerCase().includes(lowercasedTerm)) ||
         order.productName.toLowerCase().includes(lowercasedTerm)
       );
     }
@@ -204,6 +223,15 @@ const DigitizerPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
     if (newPage > 0 && newPage <= totalPages) {
       setCurrentPage(newPage);
     }
+  };
+
+  const handleStartWorking = async (order: Order) => {
+      try {
+          // Just update local status to InProgress, keep global status same
+          await updateOrderStatus(order.id, order.status, undefined, { digitizerStatus: 'InProgress' });
+      } catch (error) {
+          console.error("Failed to start working:", error);
+      }
   };
 
   // Logic for My Records View
@@ -251,7 +279,7 @@ const DigitizerPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
     }
   };
 
-  const queueCount = newOrders.length + rejectedOrders.length;
+  const queueCount = newOrders.length + inProgressOrders.length + rejectedOrders.length;
   const recordsCount = assignedOrders.length;
 
   return (
@@ -293,6 +321,16 @@ const DigitizerPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
                 }`}
               >
                 New Orders <span className="bg-slate-200 text-slate-600 text-xs font-semibold ml-1 px-2 py-0.5 rounded-full">{newOrders.length}</span>
+              </button>
+              <button
+                onClick={() => setQueueTab('in_progress')}
+                className={`px-3 py-2 text-sm font-medium transition-colors focus:outline-none ${
+                  queueTab === 'in_progress'
+                    ? 'border-b-2 border-orange-500 text-orange-600'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                In Progress <span className={`text-xs font-semibold ml-1 px-2 py-0.5 rounded-full ${queueTab === 'in_progress' ? 'bg-orange-100 text-orange-600' : 'bg-slate-200 text-slate-600'}`}>{inProgressOrders.length}</span>
               </button>
               <button
                 onClick={() => setQueueTab('rejected')}
@@ -339,10 +377,20 @@ const DigitizerPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
                 hideDates={true}
                 hideStatus={true}
                 actions={
-                  <Button size="sm" onClick={() => openUploadModal(order)}>
-                    <FileUpIcon className="w-4 h-4 mr-2" />
-                    Upload & Send to Team
-                  </Button>
+                  <div className="flex space-x-2 w-full justify-between">
+                     {/* If order is 'In Progress', show upload. Else show 'Start Working'. */}
+                     {queueTab === 'in_progress' ? (
+                        <Button size="sm" onClick={() => openUploadModal(order)} className="w-full">
+                            <FileUpIcon className="w-4 h-4 mr-2" />
+                            Upload
+                        </Button>
+                     ) : (
+                        <Button size="sm" variant="secondary" onClick={() => handleStartWorking(order)} className="w-full">
+                            <PencilRulerIcon className="w-4 h-4 mr-2" />
+                            Start Working
+                        </Button>
+                     )}
+                  </div>
                 }
               />
             ))}
@@ -351,7 +399,9 @@ const DigitizerPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
           {processedQueueOrders.length === 0 && (
               <div className="col-span-full text-center py-12 bg-white rounded-lg shadow-sm border">
                   <p className="text-slate-500">
-                    {queueTab === 'new' ? 'No new orders in your queue.' : 'No rejected orders found.'}
+                    {queueTab === 'new' ? 'No new orders in your queue.' : 
+                     queueTab === 'in_progress' ? 'You have no orders in progress.' : 
+                     'No rejected orders found.'}
                   </p>
               </div>
           )}

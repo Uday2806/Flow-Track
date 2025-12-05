@@ -253,7 +253,7 @@ export const syncShopifyOrders = async (req, res) => {
 export const updateOrderStatus = async (req, res) => {
     try {
         const { id } = req.params;
-        const { status: newStatus, note, digitizerId, vendorId, uploadedBy, priority } = req.body;
+        const { status: newStatus, note, digitizerId, vendorId, uploadedBy, priority, digitizerStatus, vendorStatus } = req.body;
         const user = req.user; // from 'protect' middleware
         
         const order = await Order.findOne({ id });
@@ -263,8 +263,9 @@ export const updateOrderStatus = async (req, res) => {
 
         // Allow update if status changes OR if reassigning digitizer while 'At Digitizer'
         const isReassigningDigitizer = currentStatus === 'At Digitizer' && newStatus === 'At Digitizer' && digitizerId && digitizerId !== order.digitizerId;
-        
-        if (currentStatus === newStatus && !isReassigningDigitizer) {
+        const isSubStatusChange = (digitizerStatus && digitizerStatus !== order.digitizerStatus) || (vendorStatus && vendorStatus !== order.vendorStatus);
+
+        if (currentStatus === newStatus && !isReassigningDigitizer && !isSubStatusChange) {
             return res.status(409).json({ message: "This action cannot be completed because the order is already in this state. Please refresh the page." });
         }
 
@@ -275,22 +276,20 @@ export const updateOrderStatus = async (req, res) => {
             'Out for Delivery': ['At Vendor']
         };
 
-        const allowedPreviousStatuses = transitions[newStatus];
-        if (allowedPreviousStatuses) {
-            if (newStatus === 'At Digitizer') {
-                // If reassigning, current status is allowed to be 'At Digitizer'
-                if (isReassigningDigitizer) {
-                    // Logic allows pass-through
-                } else {
-                    const lastNote = order.notes[order.notes.length - 1];
-                    const lastNoteContent = typeof lastNote === 'string' ? lastNote : (lastNote?.content || '');
-                    const expectedPreviousStatus = (note && note.startsWith('Team rejected:')) ? 'Team Review' : 'At Team';
-                    if (currentStatus !== expectedPreviousStatus) {
-                         return res.status(409).json({ message: "This action cannot be completed because the order's status was updated by someone else. Please refresh the page." });
-                    }
+        // Only enforce transition rules if status is actually changing.
+        // If status is NOT changing (e.g. sub-status update or reassign), we skip this block.
+        if (currentStatus !== newStatus) {
+            const allowedPreviousStatuses = transitions[newStatus];
+            if (allowedPreviousStatuses) {
+                if (newStatus === 'At Digitizer') {
+                     // Check if it's a rejection (from Team Review) or assignment (from At Team)
+                     const expectedPreviousStatus = (note && note.startsWith('Team rejected:')) ? 'Team Review' : 'At Team';
+                     if (currentStatus !== expectedPreviousStatus) {
+                          return res.status(409).json({ message: "This action cannot be completed because the order's status was updated by someone else. Please refresh the page." });
+                     }
+                } else if (!allowedPreviousStatuses.includes(currentStatus)) {
+                    return res.status(409).json({ message: "This action cannot be completed because the order's status was updated by someone else. Please refresh the page." });
                 }
-            } else if (!allowedPreviousStatuses.includes(currentStatus)) {
-                return res.status(409).json({ message: "This action cannot be completed because the order's status was updated by someone else. Please refresh the page." });
             }
         }
 
@@ -331,6 +330,18 @@ export const updateOrderStatus = async (req, res) => {
         if (digitizerId !== undefined) order.digitizerId = digitizerId;
         if (vendorId !== undefined) order.vendorId = vendorId;
         if (priority) order.priority = priority;
+
+        // Handle sub-statuses
+        if (digitizerStatus) order.digitizerStatus = digitizerStatus;
+        if (vendorStatus) order.vendorStatus = vendorStatus;
+
+        // Reset sub-statuses on stage change
+        if (newStatus === 'At Digitizer' && currentStatus !== 'At Digitizer') {
+             order.digitizerStatus = 'Pending';
+        }
+        if (newStatus === 'At Vendor' && currentStatus !== 'At Vendor') {
+             order.vendorStatus = 'Pending';
+        }
         
         // Determine the target column/context for this note based on the action and construct proper message
         let targetRole = 'Team'; // Default context
