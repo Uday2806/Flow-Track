@@ -56,36 +56,6 @@ const VendorPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
 
   const activeQueueOrders = queueTab === 'new' ? newOrders : inProgressOrders;
 
-  // Add history to the filter list if user selects 'Out for Delivery' in filterStatus
-  // But generally Queue should only show active items. History is implicitly shown if we select All Statuses? 
-  // Let's keep Queue focused on Actionable items (At Vendor).
-  // If the user wants to see Shipped items, they can use filterStatus but my queueTab logic filters them out above.
-  // Let's modify: If filterStatus includes Out For Delivery, we should probably show them.
-  // BUT the prompt asks for "In Progress" tab. 
-  // Let's stick to the Tab system for active work. Shipped items are "Done".
-  
-  // Actually, let's keep the existing dashboard behavior where it showed everything, 
-  // but split the "At Vendor" items into New vs In Progress.
-  // And "Out for Delivery" items can be shown in a separate list or integrated.
-  // To keep it clean: 
-  // Tab 1: Queue (New + In Progress) -> Actionable
-  // Tab 2: Shipped / History
-  // Similar to Digitizer Portal structure.
-
-  // However, I'll stick to a simpler implementation for Vendor:
-  // Just Tabs for the "At Vendor" items. And maybe a "Shipped" tab.
-  
-  // Let's just implement the request: New vs In Progress tabs for active orders.
-  // And if they want to see shipped, I'll add a 'Shipped' tab.
-  
-  // Actually, previously it showed everything in one grid.
-  // I will refactor to use the queueTab for active items, and maybe a 3rd tab for 'Shipped'.
-  
-  // Refined: 
-  // Tab 'new' -> AT_VENDOR && status != InProgress
-  // Tab 'in_progress' -> AT_VENDOR && status == InProgress
-  // Tab 'shipped' -> OUT_FOR_DELIVERY
-
   const ordersToDisplay = useMemo(() => {
       if (queueTab === 'new') return newOrders;
       if (queueTab === 'in_progress') return inProgressOrders;
@@ -162,16 +132,18 @@ const VendorPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
   };
   
   const handleConfirmShip = async () => {
-    if (orderToShip && filesToUpload.length > 0) {
-       // Validate files before sending
-      if (filesToUpload.length > 10) {
-          addToast({ type: 'error', message: 'You cannot upload more than 10 files at once.' });
-          return;
-      }
-      const oversizeFile = filesToUpload.find(f => f.size > 5 * 1024 * 1024);
-      if (oversizeFile) {
-          addToast({ type: 'error', message: `File ${oversizeFile.name} exceeds the 5MB limit.` });
-          return;
+    if (orderToShip) {
+       // Validate files before sending only if files exist
+      if (filesToUpload.length > 0) {
+          if (filesToUpload.length > 10) {
+              addToast({ type: 'error', message: 'You cannot upload more than 10 files at once.' });
+              return;
+          }
+          const oversizeFile = filesToUpload.find(f => f.size > 5 * 1024 * 1024);
+          if (oversizeFile) {
+              addToast({ type: 'error', message: `File ${oversizeFile.name} exceeds the 5MB limit.` });
+              return;
+          }
       }
 
       try {
@@ -349,14 +321,14 @@ const VendorPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
         footer={
           <div className="flex justify-end space-x-2">
             <Button variant="outline" onClick={closeShipModal}>Cancel</Button>
-            <Button onClick={handleConfirmShip} disabled={filesToUpload.length === 0 || isLoading}>Confirm & Ship</Button>
+            <Button onClick={handleConfirmShip} disabled={isLoading}>Confirm & Ship</Button>
           </div>
         }
       >
         <div className="space-y-4">
-          <p>Please upload the final product image(s) or shipping document(s). This is required to mark the order as shipped.</p>
+          <p>Please upload the final product image(s) or shipping document(s). This is optional.</p>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Attach Final File(s) (Required)</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Attach Final File(s) (Optional)</label>
             <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-slate-300 border-dashed rounded-md">
                 <div className="space-y-1 text-center">
                     <FileUpIcon className="mx-auto h-12 w-12 text-slate-400" />
