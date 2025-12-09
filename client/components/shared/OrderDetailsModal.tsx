@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Order, Attachment, Role, Note } from '../../types';
+import { Order, Attachment, Role, Note, Priority } from '../../types';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 import { DownloadIcon, FileIcon, TrashIcon, EditIcon, FileUpIcon, PlusIcon } from '../icons/Icons';
@@ -258,6 +258,10 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order: initialOrd
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [filesToUpload, setFilesToUpload] = useState<File[]>([]);
 
+  // Priority Editing State
+  const [isEditingPriority, setIsEditingPriority] = useState(false);
+  const [selectedPriority, setSelectedPriority] = useState<Priority>(Priority.MEDIUM);
+
   // Use the latest order data from context if available, otherwise fallback to initial props
   const order = orders.find(o => o.id === initialOrder?.id) || initialOrder;
 
@@ -316,6 +320,14 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order: initialOrd
       } catch (error) {
           console.error("Failed to add attachments", error);
       }
+  };
+
+  const handleSavePriority = async () => {
+    if (order && selectedPriority) {
+        // Pass current status as status does not change, only priority update
+        await updateOrderStatus(order.id, order.status, undefined, { priority: selectedPriority });
+        setIsEditingPriority(false);
+    }
   };
 
   // Helper to categorize notes (same as before)
@@ -390,7 +402,39 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order: initialOrd
                             
                             <p><strong className="font-semibold text-slate-900">Status:</strong> {order.status}</p>
                             {order.financialStatus && <p><strong className="font-semibold text-slate-900">Payment:</strong> {order.financialStatus}</p>}
-                            <p><strong className="font-semibold text-slate-900">Priority:</strong> {order.priority}</p>
+                            
+                            <div className="flex items-center gap-2 h-7">
+                                <strong className="font-semibold text-slate-900">Priority:</strong>
+                                {isEditingPriority ? (
+                                    <div className="flex items-center gap-1">
+                                        <select
+                                            value={selectedPriority}
+                                            onChange={(e) => setSelectedPriority(e.target.value as Priority)}
+                                            className="text-sm p-1 border rounded h-7"
+                                        >
+                                            {Object.values(Priority).map(p => (
+                                                <option key={p} value={p}>{p}</option>
+                                            ))}
+                                        </select>
+                                        <Button size="sm" onClick={handleSavePriority} disabled={isLoading} className="h-7 px-2">Save</Button>
+                                        <Button size="sm" variant="outline" onClick={() => setIsEditingPriority(false)} className="h-7 px-2">Cancel</Button>
+                                    </div>
+                                ) : (
+                                    <span className="flex items-center gap-2">
+                                        {order.priority}
+                                        {(currentUser?.role === Role.TEAM || currentUser?.role === Role.ADMIN) && (
+                                            <button 
+                                                onClick={() => { setSelectedPriority(order.priority); setIsEditingPriority(true); }} 
+                                                className="text-slate-400 hover:text-slate-600 p-1"
+                                                title="Edit Priority"
+                                            >
+                                                <EditIcon className="w-3.5 h-3.5" />
+                                            </button>
+                                        )}
+                                    </span>
+                                )}
+                            </div>
+
                             {order.shopifyOrderNumber && <p><strong className="font-semibold text-slate-900">Shopify ID:</strong> {order.shopifyOrderNumber}</p>}
                             <p><strong className="font-semibold text-slate-900">Internal ID:</strong> {order.id}</p>
                             

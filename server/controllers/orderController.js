@@ -264,8 +264,9 @@ export const updateOrderStatus = async (req, res) => {
         // Allow update if status changes OR if reassigning digitizer while 'At Digitizer'
         const isReassigningDigitizer = currentStatus === 'At Digitizer' && newStatus === 'At Digitizer' && digitizerId && digitizerId !== order.digitizerId;
         const isSubStatusChange = (digitizerStatus && digitizerStatus !== order.digitizerStatus) || (vendorStatus && vendorStatus !== order.vendorStatus);
+        const isPriorityChange = priority && priority !== order.priority;
 
-        if (currentStatus === newStatus && !isReassigningDigitizer && !isSubStatusChange && (!req.files || req.files.length === 0)) {
+        if (currentStatus === newStatus && !isReassigningDigitizer && !isSubStatusChange && !isPriorityChange && (!req.files || req.files.length === 0)) {
             // Note: We added check for files. If files are being uploaded, we allow the request even if status doesn't change
             return res.status(409).json({ message: "This action cannot be completed because the order is already in this state. Please refresh the page." });
         }
