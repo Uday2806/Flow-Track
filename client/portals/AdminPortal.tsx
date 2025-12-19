@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { Role, OrderStatus, User, Order } from '../types';
 import DashboardLayout from '../components/shared/DashboardLayout';
@@ -147,6 +148,7 @@ const AdminPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
         [OrderStatus.AT_DIGITIZER]: 'bg-orange-500',
         [OrderStatus.TEAM_REVIEW]: 'bg-yellow-500',
         [OrderStatus.AT_VENDOR]: 'bg-purple-500',
+        [OrderStatus.PARTIALLY_SHIPPED]: 'bg-indigo-500',
         [OrderStatus.OUT_FOR_DELIVERY]: 'bg-green-500',
       };
 
@@ -160,8 +162,7 @@ const AdminPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
                       </div>
                       <div className="w-full bg-slate-200 rounded-full h-2">
                           <div 
-                            className={`${statusColors[status as OrderStatus]} h-2 rounded-full`} 
-                            // FIX: Explicitly cast `count` to Number to prevent TypeScript type errors in certain environments.
+                            className={`${statusColors[status as OrderStatus] || 'bg-slate-400'} h-2 rounded-full`} 
                             style={{ width: total > 0 ? `${(Number(count) / total) * 100}%` : '0%'}}
                           ></div>
                       </div>

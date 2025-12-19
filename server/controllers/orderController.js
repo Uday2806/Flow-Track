@@ -186,10 +186,17 @@ export const syncShopifyOrders = async (req, res) => {
         });
       }
       
+      const lineItems = shopifyOrder.line_items.map(item => ({
+        name: item.name,
+        quantity: item.quantity,
+        shippedQuantity: 0
+      }));
+
       const newOrder = new Order({
         id: await getNextOrderId(),
         customerName: `${shopifyOrder.customer?.first_name || ''} ${shopifyOrder.customer?.last_name || ''}`.trim() || 'Guest Customer',
         productName: shopifyOrder.line_items.map(item => `${item.quantity} x ${item.name}`).join(', '),
+        lineItems: lineItems,
         status: 'At Team',
         attachments: attachments,
         notes: [
@@ -253,38 +260,47 @@ export const syncShopifyOrders = async (req, res) => {
 export const updateOrderStatus = async (req, res) => {
     try {
         const { id } = req.params;
-        const { status: newStatus, note, digitizerId, vendorId, uploadedBy, priority, digitizerStatus, vendorStatus } = req.body;
+        const { status: newStatus, note, digitizerId, vendorId, uploadedBy, priority, digitizerStatus, vendorStatus, shippedItems } = req.body;
         const user = req.user; // from 'protect' middleware
         
         const order = await Order.findOne({ id });
         if (!order) return res.status(404).json({ message: "Order not found" });
 
         const currentStatus = order.status;
+        
+        // Safer check for partial shipping validity
+        let isPartialShip = false;
+        try {
+            if (shippedItems) {
+                const parsed = JSON.parse(shippedItems);
+                if (Array.isArray(parsed)) isPartialShip = true;
+            }
+        } catch (e) {
+            console.error("Invalid shippedItems JSON format", e);
+        }
 
         // Allow update if status changes OR if reassigning digitizer while 'At Digitizer'
         const isReassigningDigitizer = currentStatus === 'At Digitizer' && newStatus === 'At Digitizer' && digitizerId && digitizerId !== order.digitizerId;
         const isSubStatusChange = (digitizerStatus && digitizerStatus !== order.digitizerStatus) || (vendorStatus && vendorStatus !== order.vendorStatus);
         const isPriorityChange = priority && priority !== order.priority;
 
-        if (currentStatus === newStatus && !isReassigningDigitizer && !isSubStatusChange && !isPriorityChange && (!req.files || req.files.length === 0)) {
-            // Note: We added check for files. If files are being uploaded, we allow the request even if status doesn't change
+        if (currentStatus === newStatus && !isReassigningDigitizer && !isSubStatusChange && !isPriorityChange && !isPartialShip && (!req.files || req.files.length === 0)) {
             return res.status(409).json({ message: "This action cannot be completed because the order is already in this state. Please refresh the page." });
         }
 
         const transitions = {
             'At Digitizer': ['At Team', 'Team Review'],
             'Team Review': ['At Digitizer'],
-            'At Vendor': ['Team Review'],
-            'Out for Delivery': ['At Vendor']
+            'At Vendor': ['Team Review', 'Partially Shipped'],
+            'Partially Shipped': ['At Vendor', 'Partially Shipped', 'Out for Delivery'],
+            'Out for Delivery': ['At Vendor', 'Partially Shipped']
         };
 
         // Only enforce transition rules if status is actually changing.
-        // If status is NOT changing (e.g. sub-status update or reassign), we skip this block.
         if (currentStatus !== newStatus) {
             const allowedPreviousStatuses = transitions[newStatus];
             if (allowedPreviousStatuses) {
                 if (newStatus === 'At Digitizer') {
-                     // Check if it's a rejection (from Team Review) or assignment (from At Team)
                      const expectedPreviousStatus = (note && note.startsWith('Team rejected:')) ? 'Team Review' : 'At Team';
                      if (currentStatus !== expectedPreviousStatus) {
                           return res.status(409).json({ message: "This action cannot be completed because the order's status was updated by someone else. Please refresh the page." });
@@ -306,7 +322,7 @@ export const updateOrderStatus = async (req, res) => {
             });
         }
         
-        // Handle file uploads if they exist.
+        // Handle file uploads
         if (req.files && req.files.length > 0) {
             try {
                 for (const file of req.files) {
@@ -315,7 +331,7 @@ export const updateOrderStatus = async (req, res) => {
                         id: `att-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
                         name: file.originalname,
                         url: uploadResult.secure_url,
-                        uploadedBy: uploadedBy || user.role, // Use passed uploadedBy or default to user role
+                        uploadedBy: uploadedBy || user.role,
                         timestamp: new Date().toISOString(),
                         fromShopify: false
                     };
@@ -327,17 +343,63 @@ export const updateOrderStatus = async (req, res) => {
             }
         }
         
-        // Update the order fields
-        order.status = newStatus;
+        // Handle Partial Shipping logic
+        if (shippedItems) {
+            const parsedShipped = JSON.parse(shippedItems);
+            let shipmentDetails = [];
+            
+            // If lineItems is empty (legacy order), initialize it from productName
+            if (!order.lineItems || order.lineItems.length === 0) {
+                if (order.productName) {
+                    // Try to parse "Qty x Name" format
+                    order.lineItems = order.productName.split(', ').map(p => {
+                         const match = p.match(/^(\d+)\s*x\s*(.*)$/i);
+                         if (match) {
+                             return { name: match[2].trim(), quantity: parseInt(match[1]), shippedQuantity: 0 };
+                         }
+                         return { name: p.trim(), quantity: 1, shippedQuantity: 0 };
+                    });
+                } else {
+                     order.lineItems = [];
+                }
+            }
+
+            parsedShipped.forEach(item => {
+                const found = order.lineItems.find(li => li.name === item.name);
+                if (found) {
+                    found.shippedQuantity += Number(item.quantity);
+                    shipmentDetails.push(`${item.quantity} x ${item.name}`);
+                }
+            });
+            
+            // Check if fully shipped
+            const allShipped = order.lineItems.every(li => li.shippedQuantity >= li.quantity);
+            order.status = allShipped ? 'Out for Delivery' : 'Partially Shipped';
+            
+            // Generate partial ship note - SIMPLIFIED
+            // We no longer list the specific products in the note text to avoid redundancy.
+            if (shipmentDetails.length > 0) {
+                const partialNote = `${allShipped ? 'Order fully shipped' : 'Order partially shipped'}.${note ? ` ${note}` : ''}`;
+                order.notes.push({
+                    id: `note-${Date.now()}-partial`,
+                    content: partialNote,
+                    authorName: user.name,
+                    authorRole: user.role,
+                    targetRole: 'Vendor',
+                    timestamp: new Date()
+                });
+            }
+        } else {
+            // Standard update
+            order.status = newStatus;
+        }
+
         if (digitizerId !== undefined) order.digitizerId = digitizerId;
         if (vendorId !== undefined) order.vendorId = vendorId;
         if (priority) order.priority = priority;
-
-        // Handle sub-statuses
         if (digitizerStatus) order.digitizerStatus = digitizerStatus;
         if (vendorStatus) order.vendorStatus = vendorStatus;
 
-        // Reset sub-statuses on stage change
         if (newStatus === 'At Digitizer' && currentStatus !== 'At Digitizer') {
              order.digitizerStatus = 'Pending';
         }
@@ -345,79 +407,41 @@ export const updateOrderStatus = async (req, res) => {
              order.vendorStatus = 'Pending';
         }
         
-        // Determine the target column/context for this note based on the action and construct proper message
-        let targetRole = 'Team'; // Default context
-        let finalNoteContent = note ? note.trim() : '';
+        let targetRole = 'Team'; 
+        let finalNoteContent = (note && !shippedItems) ? note.trim() : '';
         
-        // === 1. Sending TO Digitizer ===
-        if (newStatus === 'At Digitizer') {
+        if (newStatus === 'At Digitizer' && !shippedItems) {
             targetRole = 'Digitizer';
             let assignedName = 'Digitizer';
-            
-            // Rejection case
-            if (note && note.startsWith('Team rejected:')) {
-                // Just keep the rejection note as is
-            } else {
-                 // Assignment case
+            if (!(note && note.startsWith('Team rejected:'))) {
                 if (digitizerId) {
                     const dUser = await User.findOne({ id: digitizerId });
                     if (dUser) assignedName = dUser.name;
                 }
-                
-                // Construct clean chat-like message
                 const userNote = note && note.startsWith('Sent to digitizer.') 
-                    ? note.replace('Sent to digitizer.', '').replace(/^ Note: /, '').trim() // Strip old auto-gen text
-                    : (note || '');
-                
-                // For assignment, we want to show who it was assigned to
-                finalNoteContent = `Assigned to ${assignedName}`;
-                if (userNote) finalNoteContent += `\n${userNote}`;
+                    ? note.replace('Sent to digitizer.', '').replace(/^ Note: /, '').trim() : (note || '');
+                finalNoteContent = `Assigned to ${assignedName}${userNote ? `\n${userNote}` : ''}`;
             }
-        } 
-        // === 2. Sending TO Vendor ===
-        else if (newStatus === 'At Vendor') {
+        } else if (newStatus === 'At Vendor' && !shippedItems) {
             targetRole = 'Vendor';
             let assignedName = 'Vendor';
-            
             if (vendorId) {
                 const vUser = await User.findOne({ id: vendorId });
                 if (vUser) assignedName = vUser.name;
             }
-
-            // Construct clean chat-like message
             const userNote = note && note.includes('Sent to vendor:') 
-                ? note.split('Note for vendor:')[1]?.trim() || '' 
-                : (note || '');
-
-            // For assignment, we want to show who it was sent to
-            finalNoteContent = `Sent to ${assignedName}`;
-            if (userNote) finalNoteContent += `\n${userNote}`;
-        }
-        // === 3. Digitizer completing task (sending back to Team) ===
-        else if (currentStatus === 'At Digitizer' && newStatus === 'Team Review') {
+                ? note.split('Note for vendor:')[1]?.trim() || '' : (note || '');
+            finalNoteContent = `Sent to ${assignedName}${userNote ? `\n${userNote}` : ''}`;
+        } else if (currentStatus === 'At Digitizer' && newStatus === 'Team Review' && !shippedItems) {
              targetRole = 'Digitizer'; 
-             
-             // Remove "Digitizer: Design complete." prefix to allow for pure chat experience
-             const userNote = note && note.startsWith('Digitizer: Design complete.')
-                ? note.replace('Digitizer: Design complete.', '').replace(/^ Note: /, '').trim()
-                : (note || '');
-             
-             // Only show user note if present. If empty, show nothing (no system message)
-             finalNoteContent = userNote;
-        }
-        // === 4. Vendor shipping (sending back to Team/Completed) ===
-        else if (currentStatus === 'At Vendor' && newStatus === 'Out for Delivery') {
+             finalNoteContent = note && note.startsWith('Digitizer: Design complete.')
+                ? note.replace('Digitizer: Design complete.', '').replace(/^ Note: /, '').trim() : (note || '');
+        } else if (currentStatus === 'At Vendor' && newStatus === 'Out for Delivery' && !shippedItems) {
             targetRole = 'Vendor';
-
-             const userNote = note && note.startsWith('Vendor: Order has been shipped.')
-                ? note.replace('Vendor: Order has been shipped.', '').replace(/^ Note: /, '').trim()
-                : (note || '');
-
-            // Only show user note if present. If empty, show nothing (no system message)
-            finalNoteContent = userNote;
+            finalNoteContent = note && note.startsWith('Vendor: Order has been shipped.')
+                ? note.replace('Vendor: Order has been shipped.', '').replace(/^ Note: /, '').trim() : (note || '');
         }
 
-        // Only add note if there is content
         if (finalNoteContent) {
             order.notes.push({
                 id: `note-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
@@ -429,13 +453,16 @@ export const updateOrderStatus = async (req, res) => {
             });
         }
         
-        // Since notes is Mixed type, we must mark it modified if we push to it (Mongoose 5/6 quirk with mixed types)
+        // CRITICAL: Force Mongoose to recognize updates to nested arrays
         order.markModified('notes');
+        order.markModified('lineItems');
+        order.markModified('attachments');
         
         const updatedOrder = await order.save();
         res.status(200).json(updatedOrder);
 
     } catch (error) {
+        console.error("Order Status Update Error:", error);
         res.status(500).json({ message: "Error updating order status", error: error.message });
     }
 };
@@ -455,8 +482,6 @@ export const addOrderNote = async (req, res) => {
             return res.status(404).json({ message: "Order not found" });
         }
 
-        // Use provided targetRole (e.g. 'Digitizer') or default to 'Team'
-        // This allows Team members to place notes in the 'Digitizer' or 'Vendor' columns explicitly
         const roleContext = targetRole || 'Team';
 
         order.notes.push({
@@ -468,7 +493,6 @@ export const addOrderNote = async (req, res) => {
             timestamp: new Date()
         });
         
-        // Add user to associated users if they are not already
         const isAlreadyAssociated = order.associatedUsers.some(u => u.id === user.id);
         if (!isAlreadyAssociated) {
             order.associatedUsers.push({
@@ -504,23 +528,17 @@ export const updateOrderNote = async (req, res) => {
 
         const note = order.notes[noteIndex];
         
-        // Permission check:
-        // 1. Team/Admin can edit any note created by 'Team' or 'Admin' (or system notes if needed, but usually human notes)
-        // 2. Any user can edit their OWN note.
         const isAuthor = note.authorRole === user.role && note.authorName === user.name;
         const isTeamOrAdmin = user.role === 'Team' || user.role === 'Admin';
         const isNoteByTeam = note.authorRole === 'Team';
 
-        // Team can edit Team notes. Author can edit own notes.
         const canEdit = isAuthor || (isTeamOrAdmin && isNoteByTeam);
 
         if (!canEdit) {
              return res.status(403).json({ message: "You are not authorized to edit this note." });
         }
 
-        // Update content
         order.notes[noteIndex].content = content;
-        // Mark as edited
         order.notes[noteIndex].isEdited = true;
         
         order.markModified('notes');
@@ -547,11 +565,8 @@ export const deleteOrderAttachment = async (req, res) => {
             return res.status(403).json({ message: "Cannot delete attachments fetched from Shopify." });
         }
         
-        // Permission check:
-        // 1. Team/Admin can delete any non-shopify attachment.
-        // 2. Digitizer/Vendor can delete attachments THEY uploaded.
         const isPrivilegedUser = user.role === 'Team' || user.role === 'Admin';
-        const isOwner = attachment.uploadedBy === user.role; // uploadedBy stores Role string
+        const isOwner = attachment.uploadedBy === user.role;
 
         if (!isPrivilegedUser && !isOwner) {
             return res.status(403).json({ message: "You are not authorized to delete this attachment." });

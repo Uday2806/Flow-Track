@@ -17,12 +17,19 @@ const associatedUserSchema = new mongoose.Schema({
     role: String,
 }, { _id: false });
 
+const lineItemSchema = new mongoose.Schema({
+  name: String,
+  quantity: Number,
+  shippedQuantity: { type: Number, default: 0 }
+}, { _id: false });
+
 // Using Mixed type for notes allows existing string notes to exist 
 // alongside new object-based notes without causing database errors.
 const orderSchema = new mongoose.Schema({
   id: { type: String, required: true, unique: true }, // e.g., ORD-001
   customerName: { type: String, required: true },
   productName: { type: String, required: true },
+  lineItems: [lineItemSchema],
   status: { type: String, required: true },
   attachments: [attachmentSchema],
   notes: { type: [mongoose.Schema.Types.Mixed], default: [] }, 

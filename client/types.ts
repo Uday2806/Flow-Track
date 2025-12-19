@@ -12,6 +12,7 @@ export enum OrderStatus {
   AT_DIGITIZER = 'At Digitizer',
   TEAM_REVIEW = 'Team Review',
   AT_VENDOR = 'At Vendor',
+  PARTIALLY_SHIPPED = 'Partially Shipped',
   OUT_FOR_DELIVERY = 'Out for Delivery',
 }
 
@@ -47,10 +48,17 @@ export interface AssociatedUser {
   role: Role;
 }
 
+export interface LineItem {
+  name: string;
+  quantity: number;
+  shippedQuantity: number;
+}
+
 export interface Order {
   id: string;
   customerName: string;
   productName: string;
+  lineItems?: LineItem[];
   status: OrderStatus;
   priority: Priority;
   createdAt: string;

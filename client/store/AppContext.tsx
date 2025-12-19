@@ -12,7 +12,7 @@ interface AppState {
   currentUser: User | null;
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
-  updateOrderStatus: (orderId: string, status: OrderStatus, note?: string, updates?: { digitizerId?: string; vendorId?: string; priority?: Priority; digitizerStatus?: string; vendorStatus?: string; }, attachmentFiles?: File[] | null) => Promise<void>;
+  updateOrderStatus: (orderId: string, status: OrderStatus, note?: string, updates?: { digitizerId?: string; vendorId?: string; priority?: Priority; digitizerStatus?: string; vendorStatus?: string; shippedItems?: string; }, attachmentFiles?: File[] | null) => Promise<void>;
   addOrderNote: (orderId: string, note: string, targetRole?: string) => Promise<void>;
   editOrderNote: (orderId: string, noteId: string, content: string) => Promise<void>;
   deleteAttachment: (orderId: string, attachmentId: string) => Promise<void>;
@@ -239,7 +239,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  const updateOrderStatus = async (orderId: string, status: OrderStatus, note?: string, updates?: { digitizerId?: string; vendorId?: string; priority?: Priority; digitizerStatus?: string; vendorStatus?: string; }, attachmentFiles?: File[] | null) => {
+  const updateOrderStatus = async (orderId: string, status: OrderStatus, note?: string, updates?: { digitizerId?: string; vendorId?: string; priority?: Priority; digitizerStatus?: string; vendorStatus?: string; shippedItems?: string; }, attachmentFiles?: File[] | null) => {
     const formData = new FormData();
     formData.append('status', status);
     if (note) formData.append('note', note);
@@ -248,6 +248,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (updates?.priority) formData.append('priority', updates.priority);
     if (updates?.digitizerStatus) formData.append('digitizerStatus', updates.digitizerStatus);
     if (updates?.vendorStatus) formData.append('vendorStatus', updates.vendorStatus);
+    if (updates?.shippedItems) formData.append('shippedItems', updates.shippedItems);
     
     if (attachmentFiles && attachmentFiles.length > 0) {
         for (const file of attachmentFiles) {

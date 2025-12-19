@@ -126,6 +126,7 @@ const OrdersDashboard: React.FC<{
 };
 
 export const IncomingQueueView: React.FC<{ onViewOrderDetails: (order: Order) => void }> = ({ onViewOrderDetails }) => {
+    // ... (No changes here, keeping existing code for IncomingQueueView)
     const { orders, users, updateOrderStatus, isLoading, currentUser, addToast } = useAppContext();
     const [rejectModalOpen, setRejectModalOpen] = useState(false);
     const [rejectionNote, setRejectionNote] = useState('');
@@ -205,7 +206,6 @@ export const IncomingQueueView: React.FC<{ onViewOrderDetails: (order: Order) =>
 
             } catch (error) {
                 console.error("Error sending order to digitizer:", error);
-                // Error toast is shown by context's handleApiCall
             }
         }
     };
@@ -255,7 +255,6 @@ export const IncomingQueueView: React.FC<{ onViewOrderDetails: (order: Order) =>
                         <p className="text-sm text-slate-600 mb-2">Please provide a reason for rejecting the design. This will be sent back to the digitizer.</p>
                         <textarea value={rejectionNote} onChange={(e) => setRejectionNote(e.target.value)} className="w-full p-2 border rounded-md bg-slate-50 border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-800 focus:border-transparent transition-shadow" placeholder="e.g., Colors are incorrect..." rows={3} />
                     </div>
-                    
                     <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Attach Reference File(s) (Optional)</label>
                         <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-slate-300 border-dashed rounded-md">
@@ -286,7 +285,8 @@ export const IncomingQueueView: React.FC<{ onViewOrderDetails: (order: Order) =>
                 </div>
             </Modal>
             <Modal isOpen={sendToDigitizerModalOpen} onClose={() => setSendToDigitizerModalOpen(false)} title={`Send Order ${orderToSend?.shopifyOrderNumber || orderToSend?.id} to Digitizer`} footer={<div className="flex justify-end space-x-2"><Button variant="outline" onClick={() => setSendToDigitizerModalOpen(false)}>Cancel</Button><Button onClick={handleConfirmSendToDigitizer} disabled={!selectedDigitizerId || filesToAttach.length === 0 || isLoading}>Confirm & Send</Button></div>}>
-                <div className="space-y-4">
+                 {/* ... Modal content similar to original ... */}
+                 <div className="space-y-4">
                     <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Assign to Digitizer</label>
                         <select value={selectedDigitizerId} onChange={e => setSelectedDigitizerId(e.target.value)} className="w-full p-2 border rounded-md bg-white"><option value="" disabled>Select a digitizer...</option>{digitizers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select>
@@ -343,7 +343,8 @@ export const IncomingQueueView: React.FC<{ onViewOrderDetails: (order: Order) =>
                 </div>
             </Modal>
             <Modal isOpen={approveModalOpen} onClose={() => setApproveModalOpen(false)} title={`Confirm Approval: ${orderToApprove?.shopifyOrderNumber || orderToApprove?.id}`} footer={<div className="flex justify-end space-x-2"><Button variant="outline" onClick={() => setApproveModalOpen(false)}>Cancel</Button><Button onClick={handleApprove} disabled={!selectedVendorId}>Confirm & Send to Vendor</Button></div>}>
-                <div className="space-y-4">
+                 {/* ... Modal content similar to original ... */}
+                 <div className="space-y-4">
                     <p>You are about to approve this order. Please select a vendor to send it to for production.</p>
                     {orderToApprove && (
                         <div className="p-3 text-sm bg-slate-50 rounded-md border">
@@ -374,6 +375,7 @@ export const IncomingQueueView: React.FC<{ onViewOrderDetails: (order: Order) =>
 };
 
 const DigitizerRecordsView: React.FC<{ onViewOrderDetails: (order: Order) => void }> = ({ onViewOrderDetails }) => {
+    // ... (No changes here, keeping existing code for DigitizerRecordsView)
     const { users, orders } = useAppContext();
     const [viewingDigitizer, setViewingDigitizer] = useState<User & { assignedOrders: Order[] } | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
@@ -481,6 +483,7 @@ const DigitizerRecordsView: React.FC<{ onViewOrderDetails: (order: Order) => voi
 };
 
 const VendorRecordsView: React.FC<{ onViewOrderDetails: (order: Order) => void }> = ({ onViewOrderDetails }) => {
+    // ... (No changes here, keeping existing code for VendorRecordsView)
     const { users, orders } = useAppContext();
     const [viewingVendor, setViewingVendor] = useState<User & { assignedOrders: Order[] } | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
@@ -574,6 +577,7 @@ export const ShopifySyncModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
 }> = ({ isOpen, onClose }) => {
+    // ... (No changes here, keeping existing code for ShopifySyncModal)
     const { importShopifyOrders, isLoading } = useAppContext();
     const [syncMessage, setSyncMessage] = useState('');
 
@@ -635,8 +639,10 @@ const TeamPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
 
   const tabCounts = useMemo(() => ({
     incoming_queue: orders.filter(o => [OrderStatus.AT_TEAM, OrderStatus.TEAM_REVIEW].includes(o.status)).length,
+    // Removed PARTIALLY_SHIPPED from track_progress to avoid duplication, as users want to see it in "Out for Delivery"
     track_progress: orders.filter(o => [OrderStatus.AT_DIGITIZER, OrderStatus.AT_VENDOR].includes(o.status)).length,
-    out_for_delivery: orders.filter(o => o.status === OrderStatus.OUT_FOR_DELIVERY).length
+    // Added PARTIALLY_SHIPPED here
+    out_for_delivery: orders.filter(o => [OrderStatus.OUT_FOR_DELIVERY, OrderStatus.PARTIALLY_SHIPPED].includes(o.status)).length
   }), [orders]);
   
   const openReassignModal = (order: Order) => {
@@ -689,7 +695,8 @@ const TeamPortal: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
         );
       }
       case 'out_for_delivery': {
-        const shippedOrders = orders.filter(o => o.status === OrderStatus.OUT_FOR_DELIVERY);
+        // Included PARTIALLY_SHIPPED here
+        const shippedOrders = orders.filter(o => [OrderStatus.OUT_FOR_DELIVERY, OrderStatus.PARTIALLY_SHIPPED].includes(o.status));
         return (
           <OrdersDashboard
             title="Out for Delivery"
